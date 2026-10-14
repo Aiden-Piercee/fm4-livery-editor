@@ -1,0 +1,36 @@
+name: Build Windows package
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - uses: msys2/setup-msys2@v2
+        with: { msystem: MINGW64, install: mingw-w64-x86_64-gcc git }
+      - name: Build fzlzx.dll (libmspack lzxd, LGPL-2.1)
+        shell: msys2 {0}
+        run: |
+          git clone https://github.com/kyz/libmspack.git /tmp/libmspack
+          git -C /tmp/libmspack checkout 55d501976171397ccd5d5a7a1ca7da065b1d9a06
+          gcc -shared -O2 -static-libgcc -o fm4livery/lib/fzlzx.dll native/fzlzx.c /tmp/libmspack/libmspack/mspack/lzxd.c -I/tmp/libmspack/libmspack/mspack
+      - name: Build exe
+        shell: pwsh
+        run: |
+          pip install -r requirements.txt pyinstaller
+          pyinstaller --onefile --name fm4livery --add-binary "fm4livery/lib/fzlzx.dll;fm4livery/lib" run_livery.py
+      - name: Smoke test
+        shell: pwsh
+        run: ./dist/fm4livery.exe --help
+      - name: Assemble package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force pkg | Out-Null
+          Copy-Item dist/fm4livery.exe, README.md, THIRD_PARTY.md pkg/
+          Compress-Archive -Path pkg/* -DestinationPath fm4livery-windows.zip
+      - uses: actions/upload-artifact@v4
+        with: { name: fm4livery-windows, path: fm4livery-windows.zip }
