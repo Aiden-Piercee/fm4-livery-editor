@@ -179,3 +179,23 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+# --- fm4-livery-editor ---
+# the LZX helper lives in lib/ and is a binary we do ship (the generic rules above would hide it)
+!fm4livery/lib/
+!fm4livery/lib/*.so
+!fm4livery/lib/*.dll
+
+# never commit anything from a user's game or profile: keys source, saves, liveries
+default.pe
+PlayerDatabase*
+ForzaProfile*
+*.liv
+*.lvg
+*.bak_*
+*.bak
+profiles/
+extracted/
+# test output / scratch
+*.fm4livery.tmp
+scratch/
