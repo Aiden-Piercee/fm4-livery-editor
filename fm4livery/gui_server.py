@@ -7,9 +7,23 @@ from .gui_page import PAGE
 class Api:
     def __init__(self, root=None):
         self.c = None; self.err = None; self.fits = {}; self.lock = threading.Lock(); self.exports = os.path.join(os.getcwd(), 'fm4livery_exports')
-        self.setup(root or os.getcwd(), None, quiet=True)
-    def setup(self, root, profile, quiet=False):
-        try: self.c = app.context(root, None, profile or None); self.err = None
+        self.setup(root or '', None, quiet=True)
+    SETTINGS = 'fm4livery_settings.json'
+    def _load_settings(self):
+        try: return json.load(open(self.SETTINGS))
+        except Exception: return {}
+    def setup(self, root, profile, quiet=False, pe=None, media=None):
+        st = self._load_settings()
+        if root is None or root == '':
+            root = st.get('root') or os.getcwd()
+            pe = pe if pe is not None else st.get('pe'); media = media if media is not None else st.get('media')
+        pe = (pe or '').strip().strip('"') or None; media = (media or '').strip().strip('"') or None
+        try:
+            if pe and not os.path.isfile(pe): raise app.AppError('that default.pe path does not exist: ' + pe)
+            if media and not os.path.isdir(media): raise app.AppError('that Media folder does not exist: ' + media)
+            self.c = app.context(root, pe, profile or None, media); self.err = None
+            try: json.dump(dict(root=root, pe=pe or '', media=media or ''), open(self.SETTINGS, 'w'))
+            except OSError: pass
         except Exception as e:
             self.c = None; self.err = str(e)
             if not quiet: raise
@@ -17,7 +31,7 @@ class Api:
     def state(self):
         c = self.c
         if not c: return dict(ok=False, error=self.err, version=__version__)
-        return dict(ok=True, version=__version__, root=c['root'], profile=c['profile'], xuid=c['xuid'], profiles=c['profiles'], media=c['media'], cars_known=len(c['names']))
+        return dict(ok=True, version=__version__, root=c['root'], profile=c['profile'], xuid=c['xuid'], profiles=c['profiles'], media=c['media'], pe=c['pe_path'], cars_known=len(c['names']))
     def need(self):
         if not self.c: raise app.AppError(self.err or 'game folder not set')
         return self.c
@@ -57,7 +71,7 @@ class Api:
         return dict(messages=warn + app.write_liv(c, g, slot, share.to_plain(m, row['car_id'], c['xuid'])))
     def backups(self): c = self.need(); return dict(files=[os.path.relpath(p, c['profile']) for p in app.backups(c)])
     def restore(self, d): c = self.need(); return dict(restored=os.path.relpath(app.restore(c, os.path.join(c['profile'], d['file'])), c['profile']))
-ROUTES = {'setup': lambda a, d: a.setup(d.get('root') or os.getcwd(), d.get('profile')), 'state': lambda a, d: a.state(), 'garage': lambda a, d: a.garage(), 'preview': lambda a, d: a.preview(d), 'model': lambda a, d: a.model(d),
+ROUTES = {'setup': lambda a, d: a.setup(d.get('root') or '', d.get('profile'), pe=d.get('pe'), media=d.get('media')), 'state': lambda a, d: a.state(), 'garage': lambda a, d: a.garage(), 'preview': lambda a, d: a.preview(d), 'model': lambda a, d: a.model(d),
           'apply': lambda a, d: a.apply(d), 'export': lambda a, d: a.export(d), 'import': lambda a, d: a.import_(d), 'backups': lambda a, d: a.backups(), 'restore': lambda a, d: a.restore(d)}
 def make_server(root=None, port=0):
     api = Api(root); token = secrets.token_urlsafe(16); page = PAGE.replace('__TOKEN__', token).encode('utf-8')
@@ -86,6 +100,11 @@ def run(root=None, no_window=False):
         try:
             import webview
             class JsApi:
+                def pick_file(self):
+                    try:
+                        r = webview.windows[0].create_file_dialog(getattr(getattr(webview, 'FileDialog', webview), 'OPEN', None) or webview.OPEN_DIALOG)
+                        return r[0] if r else None
+                    except Exception: return None
                 def pick_folder(self):
                     try:
                         r = webview.windows[0].create_file_dialog(getattr(getattr(webview, 'FileDialog', webview), 'FOLDER', None) or webview.FOLDER_DIALOG)

@@ -39,6 +39,12 @@ __VIEWER_CSS__
    <h2>Game folder</h2>
    <p class="note" id="setupMsg">Choose the folder that contains your game or recomp files (the one with <code>default.pe</code> and your profile).</p>
    <div class="row"><div><input type="text" id="rootIn" placeholder="C:\path\to\your\recomp"></div><div style="flex:0 0 auto"><button class="sec hide" id="btnPick">Browse…</button> <button id="btnFind">Find</button></div></div>
+   <details style="margin-top:10px" id="advBox"><summary class="note" style="cursor:pointer">Files in different places? (optional)</summary>
+    <label>default.pe <span class="note">(your own game file; leave blank to search the folder above)</span></label>
+    <div class="row"><div><input type="text" id="peIn" placeholder="C:\path\to\default.pe"></div><div style="flex:0 0 auto"><button class="sec hide" id="btnPickPe">Browse…</button></div></div>
+    <label>Media folder <span class="note">(has the cars folder and db/gamedb.slt; gives car names and finds car zips)</span></label>
+    <div class="row"><div><input type="text" id="mediaIn" placeholder="C:\path\to\Media"></div><div style="flex:0 0 auto"><button class="sec hide" id="btnPickMedia">Browse…</button></div></div>
+   </details>
    <div id="profPick" class="hide"><label>Profile</label><select id="profSel"></select></div>
   </div>
   <div class="card"><h2>Garage</h2>
@@ -82,9 +88,9 @@ async function api(n,d){const r=await fetch('/api/'+n,{method:'POST',headers:{'X
 function setBusy(b,btn,txt){busy=b;if(btn){btn.disabled=b;if(b){btn.dataset.t=btn.innerHTML;btn.innerHTML='<span class="spin"></span>'+txt}else if(btn.dataset.t)btn.innerHTML=btn.dataset.t}}
 function b64(file){return new Promise((res,rej)=>{const f=new FileReader();f.onload=()=>res(f.result.split(',')[1]);f.onerror=rej;f.readAsDataURL(file)})}
 function showState(s){const ch=$('#chipProfile');$('#ver').textContent='v'+(s.version||'');
- if(s.ok){ch.textContent='profile '+s.xuid;ch.className='chip ok';$('#setupCard').classList.add('hide');const p=$('#profSel');p.innerHTML='';(s.profiles||[]).forEach(x=>{const o=document.createElement('option');o.value=x;o.textContent=x;if(x===s.profile)o.selected=true;p.appendChild(o)});$('#profPick').classList.toggle('hide',(s.profiles||[]).length<2);
+ if(s.ok){if(s.root&&!$('#rootIn').value)$('#rootIn').value=s.root;$('#peIn').value=s.pe||'';$('#mediaIn').value=s.media||'';ch.textContent='profile '+s.xuid;ch.className='chip ok';$('#setupCard').classList.add('hide');const p=$('#profSel');p.innerHTML='';(s.profiles||[]).forEach(x=>{const o=document.createElement('option');o.value=x;o.textContent=x;if(x===s.profile)o.selected=true;p.appendChild(o)});$('#profPick').classList.toggle('hide',(s.profiles||[]).length<2);
   $('#garNote').textContent=s.cars_known?'':'Car names unavailable (game database not found) - cars show their ID.';loadGarage()}
- else{ch.textContent='no game found';ch.className='chip bad';$('#setupCard').classList.remove('hide');$('#setupMsg').textContent=s.error||'';}}
+ else{ch.textContent='game files not found';ch.className='chip bad';$('#setupCard').classList.remove('hide');$('#advBox').open=true;$('#setupMsg').textContent=(s.error||'')+' - if your files are in different places, fill in the boxes below.';}}
 async function loadGarage(){try{const g=await api('garage');rows=g.rows;const z=$('#zipSel');z.innerHTML='<option value="">automatic</option>';g.carzips.forEach(p=>{const o=document.createElement('option');o.value=p;o.textContent=p.split(/[\\/]/).pop();z.appendChild(o)});
  const tb=$('#garage');tb.innerHTML='';rows.forEach(r=>{const tr=document.createElement('tr');tr.innerHTML='<td>'+r.garage_id+'</td><td>'+(r.car!=='?'?r.car:'car '+r.car_id)+'</td><td><span class="tag '+(r.livery?'has':'')+'">'+(r.livery?(r.file?'livery':'assigned'):'none')+'</span></td>';tr.onclick=()=>pick(r.garage_id);tr.dataset.id=r.garage_id;tb.appendChild(tr)});
  if(!g.signature)log('warning: PlayerDatabase signature did not verify','warn');if(sel)pick(sel)}catch(e){log('garage: '+e.message,'bad')}}
@@ -94,8 +100,8 @@ function pick(id){sel=id;document.querySelectorAll('#garage tr').forEach(t=>t.cl
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));['make','share','view','bak'].forEach(t=>$('#t_'+t).classList.toggle('hide',t!==b.dataset.t));if(b.dataset.t==='bak')loadBak();if(b.dataset.t==='view')loadView()});
 $('#shapes').oninput=e=>$('#shV').textContent=e.target.value;
 $('#btnFolder').onclick=()=>{$('#setupCard').classList.toggle('hide')};
-$('#btnFind').onclick=async()=>{try{showState(await api('setup',{root:$('#rootIn').value.trim(),profile:$('#profSel').value||''}))}catch(e){showState({ok:false,error:e.message});log(e.message,'bad')}};
-$('#profSel').onchange=async()=>{try{showState(await api('setup',{root:$('#rootIn').value.trim()||undefined,profile:$('#profSel').value}))}catch(e){log(e.message,'bad')}};
+$('#btnFind').onclick=async()=>{try{showState(await api('setup',{root:$('#rootIn').value.trim(),pe:$('#peIn').value,media:$('#mediaIn').value,profile:$('#profSel').value||''}))}catch(e){showState({ok:false,error:e.message});log(e.message,'bad')}};
+$('#profSel').onchange=async()=>{try{showState(await api('setup',{root:$('#rootIn').value.trim()||undefined,pe:$('#peIn').value,media:$('#mediaIn').value,profile:$('#profSel').value}))}catch(e){log(e.message,'bad')}};
 $('#btnPrev').onclick=async()=>{const f=$('#img').files[0];if(!sel)return log('pick a garage slot first','warn');if(!f)return log('choose an image first','warn');
  const panels=[...document.querySelectorAll('#panelBoxes input:checked')].map(x=>x.value);if(!panels.length)return log('tick at least one panel','warn');
  if(panels.includes('wing'))log('note: the wing only paints about 60% of the blade','warn');
@@ -112,7 +118,9 @@ __VIEWER_JS__
 async function loadView(){if(!V.init())return;if(!sel){$('#vStatus').textContent='Pick a garage slot first';return}
  const key=sel+'|'+$('#zipSel').value;if(viewKey===key)return;$('#vStatus').textContent='loading the car model...';$('#vStatus').className='note';
  try{const m=await api('model',{slot:sel,carzip:$('#zipSel').value});V.setModel(m);viewKey=key;if(lastPanels)V.setLivery(lastPanels)}catch(e){$('#vStatus').textContent='';log('3D view: '+e.message,'bad')}}
-window.addEventListener('pywebviewready',()=>{if(window.pywebview&&window.pywebview.api&&window.pywebview.api.pick_folder)$('#btnPick').classList.remove('hide')});
+window.addEventListener('pywebviewready',()=>{if(window.pywebview&&window.pywebview.api&&window.pywebview.api.pick_folder)$('#btnPick').classList.remove('hide');$('#btnPickPe').classList.remove('hide');$('#btnPickMedia').classList.remove('hide')});
+$('#btnPickPe').onclick=async()=>{const p=await window.pywebview.api.pick_file();if(p)$('#peIn').value=p};
+$('#btnPickMedia').onclick=async()=>{const p=await window.pywebview.api.pick_folder();if(p)$('#mediaIn').value=p};
 $('#btnPick').onclick=async()=>{const p=await window.pywebview.api.pick_folder();if(p){$('#rootIn').value=p;$('#btnFind').click()}};
 (async()=>{try{showState(await api('state'))}catch(e){log(e.message,'bad')}})();
 </script></body></html>'''

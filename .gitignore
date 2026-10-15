@@ -199,3 +199,5 @@ extracted/
 # test output / scratch
 *.fm4livery.tmp
 scratch/
+fm4livery_settings.json
+fm4livery_exports/
