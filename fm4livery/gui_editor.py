@@ -37,6 +37,7 @@ HTML = r'''
    <div id="t_edit" class="hide">
      <div class="row"><div style="flex:0 0 180px"><label>Panel</label><select id="ePanel"></select></div>
        <div style="flex:0 0 auto;align-self:flex-end"><button class="sec" id="eReload">Reload from slot</button></div>
+       <div style="flex:0 0 auto;align-self:flex-end"><button class="sec" id="eAll" title="Show every panel of the livery at once; click a panel to edit it">All panels</button></div>
        <div style="flex:0 0 auto;align-self:flex-end"><button id="eSave" disabled>Save to slot</button></div>
        <label class="chk hide" id="eClosedBox" style="flex:0 0 auto;align-self:flex-end;margin:0 0 6px"><input type="checkbox" id="eClosed"> The game is closed</label>
        <div class="note" id="eCount" style="flex:0 0 auto;align-self:flex-end"></div></div>
@@ -46,7 +47,7 @@ HTML = r'''
        <button class="sec" id="eDup">Duplicate</button><button class="sec" id="eFwd">Bring forward</button><button class="sec" id="eBack">Send back</button><button class="sec" id="eDel" title="Delete key">Delete</button><button class="sec" id="eChange" title="Swap the shape of the selected layer for one picked from Add shape">Change shape</button>
        <span class="note">Drag to move - handles resize - top handle rotates - wheel zooms - right/middle drag or Space+drag pans - arrows nudge (Shift = 10)</span>
      </div>
-     <div class="egrid"><div class="ewrap" id="eWrap"><canvas id="eCv"></canvas></div>
+     <div class="egrid"><div class="ewrap" id="eWrap"><canvas id="eCv"></canvas><canvas id="eAllCv" class="hide"></canvas></div>
        <div><label>Layers (bottom to top)</label><div class="elist" id="eList"></div>
          <label>Selected layer</label>
          <div class="eform" id="eForm">
@@ -128,7 +129,7 @@ async function draw(){if(!data||!panel)return;const my=++rtok,V=view(),[x0,x1,y0
  const list=$('#eList');list.innerHTML='';V.P.layers.forEach((L,i)=>{const d=document.createElement('div');if(i===sel)d.className='sel';const [r,g,bb,a]=argb(L.argb);
   d.innerHTML='<span class="sw" style="background:rgba('+r+','+g+','+bb+','+(a/255)+')"></span><span>#'+(i+1)+'</span><span class="note">shape '+L.shape+'</span><span class="note" style="margin-left:auto">'+Math.round(L.x)+', '+Math.round(L.y)+'</span>';
   d.onclick=()=>{sel=i;draw()};list.appendChild(d)});
- updForm();updBtns();updCount();info()}
+ updForm();updBtns();updCount();info();if(allMode)drawAll()}
 
 function info(){if(!data||!panel)return;const P=data.panels[panel];
  $('#eInfo').textContent=(dirty?'* unsaved changes - ':'')+P.layers.length+' layers on '+panel+(data.missing.length?' - '+data.missing.length+' shape(s) not readable (drawn as boxes)':'')+(data.have_file?'':' - this slot has no livery file yet')}
@@ -273,6 +274,25 @@ async function importLayers(panels,mode){
  await draw();
  log('imported '+inc+' layers ('+mode+') - review, then Save to slot','ok');
  try{const tp=await texMap(Object.keys(data.panels));if(window.__setSlotTex)window.__setSlotTex(tp)}catch(e){log('3D view: '+e.message,'warn')}}
+
+// ---- all-panels overview: every panel side by side, click one to edit it ----
+let allMode=false,allHits=[];
+async function drawAll(){if(!data)return;const names=Object.keys(data.panels),cv=$('#eAllCv'),ctx=cv.getContext('2d');
+ const maxw=Math.max(...names.map(n=>{const b=data.panels[n].box;return b[1]-b[0]})),s=Math.min(0.6,((($('#eWrap').clientWidth||1000)-40)/2.2)/maxw),G=14,LH=18,MAXW=Math.max(500,($('#eWrap').clientWidth||1000)-4);
+ const tiles=[];let x=G,y=G,rowh=0,W=0;
+ for(const n of names){const b=data.panels[n].box,w=Math.round((b[1]-b[0])*s),h=Math.round((b[3]-b[2])*s);
+  if(x+w>MAXW&&x>G){x=G;y+=rowh+LH+G;rowh=0}
+  tiles.push({n,x,y:y+LH,w,h});x+=w+G;rowh=Math.max(rowh,h);W=Math.max(W,x)}
+ const H=y+rowh+LH+G;cv.width=Math.max(W,300);cv.height=H;ctx.fillStyle='#14161a';ctx.fillRect(0,0,cv.width,cv.height);allHits=[];
+ for(const t of tiles){const sil=await silImg(t.n),tex=await renderTex(t.n,s);
+  const bg=document.createElement('canvas');bg.width=t.w;bg.height=t.h;const b=bg.getContext('2d');b.drawImage(sil,0,0,t.w,t.h);b.globalCompositeOperation='source-in';b.fillStyle='#2b2f38';b.fillRect(0,0,t.w,t.h);
+  ctx.drawImage(bg,t.x,t.y);ctx.drawImage(tex,t.x,t.y);
+  ctx.strokeStyle=t.n===panel?'#4aa3ff':'#3a3f4a';ctx.lineWidth=t.n===panel?2:1;ctx.strokeRect(t.x-.5,t.y-.5,t.w+1,t.h+1);
+  ctx.fillStyle='#aab';ctx.font='12px sans-serif';ctx.fillText(t.n+' ('+data.panels[t.n].layers.length+' layers)',t.x,t.y-5);allHits.push(t)}}
+function setAll(on){allMode=on;$('#eCv').classList.toggle('hide',on);$('#eAllCv').classList.toggle('hide',!on);$('#eAll').textContent=on?'Back to editing':'All panels';if(on)drawAll();else draw()}
+$('#eAll').onclick=()=>{if(!data)return;setAll(!allMode)};
+$('#eAllCv').addEventListener('click',ev=>{const r=ev.target.getBoundingClientRect(),x=(ev.clientX-r.left)*ev.target.width/r.width,y=(ev.clientY-r.top)*ev.target.height/r.height;
+ const t=allHits.find(t=>x>=t.x&&x<=t.x+t.w&&y>=t.y&&y<=t.y+t.h);if(t){panel=t.n;sel=-1;$('#ePanel').value=t.n;vDisarm();setAll(false)}});
 $('#ePanel').onchange=e=>{panel=e.target.value;sel=-1;vDisarm();draw()};
 $('#eReload').onclick=()=>load(true).then(tp=>{if(tp&&tp!==true&&window.__setSlotTex)window.__setSlotTex(tp)}).catch(e=>log('editor: '+e.message,'bad'));
 $('#eSave').onclick=save;

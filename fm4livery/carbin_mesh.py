@@ -229,15 +229,18 @@ def _strip_to_tris(idx):
 
 
 def _wheel_layout(phys_xml):
-    wb, ft, rt = 2.5, 1.6, 1.6
+    wb, ft, rt, zc = 2.5, 1.6, 1.6, 0.0
     try:
-        m = ET.fromstring(phys_xml).find('Misc')
+        root = ET.fromstring(phys_xml)
+        m = root.find('Misc')
         wb = float(m.get('Wheelbase'))
         ft = float(m.get('FrontTrackOuter'))
         rt = float(m.get('RearTrackOuter'))
+        b = root.find('.//BottomCenterWheelbasePos')      # wheelbase centre is not always at the model origin
+        if b is not None: zc = float(b.get('z'))
     except Exception:
         pass
-    return wb, ft, rt
+    return wb, ft, rt, zc
 
 
 def build_model(carbin_bytes, phys_xml=b''):
@@ -246,7 +249,7 @@ def build_model(carbin_bytes, phys_xml=b''):
     P, N, I, parts = [], [], [], []
     nv = 0
     ni = 0
-    wb, ft, rt = _wheel_layout(phys_xml)
+    wb, ft, rt, zc = _wheel_layout(phys_xml)
 
     def add(name, mat, cat, pos, nrm, tris, hidden):
         nonlocal nv, ni
@@ -274,16 +277,17 @@ def build_model(carbin_bytes, phys_xml=b''):
             cat = _category(s['name'], m['name'])
             if s['name'] == 'wheel':
                 cy = float(pos[:, 1].max())          # wheel radius: sits on the ground
+                ox = -float(pos[:, 0].min())         # outer tyre face sits at TrackOuter/2
                 for fz, tr, side in ((-1, ft, -1), (-1, ft, 1), (1, rt, -1), (1, rt, 1)):
                     p = pos.copy()
                     p[:, 1] += cy
-                    p[:, 2] += fz * wb / 2.0
+                    p[:, 2] += zc + fz * wb / 2.0
                     n2 = nrm.copy()
                     t2 = tris
                     if side == -1:
-                        p[:, 0] += -tr / 2.0 + 0.122
+                        p[:, 0] += -tr / 2.0 + ox
                     else:
-                        p[:, 0] = -p[:, 0] + tr / 2.0 - 0.122
+                        p[:, 0] = -p[:, 0] + tr / 2.0 - ox
                         n2[:, 0] = -n2[:, 0]
                         t2 = tris[:, ::-1]
                     add('wheel', m['name'], cat, p, n2, t2, False)
