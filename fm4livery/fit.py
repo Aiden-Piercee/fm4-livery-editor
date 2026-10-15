@@ -89,6 +89,14 @@ def render(layers,xmin,xmax,ymin,ymax,res=1.5):
     for kind,cx,cy,w,h,th,col in layers: C[mask(kind,cx,cy,w,h,th,X,Y)]=col
     return Image.fromarray(C.clip(0,255).astype(np.uint8))
 
+def render_rgba(layers,xmin,xmax,ymin,ymax,res=1.5):
+    W=int((xmax-xmin)/res); H=int((ymax-ymin)/res)
+    xs=xmin+(np.arange(W)+.5)*res; ys=ymax-(np.arange(H)+.5)*res; X,Y=np.meshgrid(xs,ys)
+    C=np.zeros((H,W,4))
+    for kind,cx,cy,w,h,th,col in layers:
+        m=mask(kind,cx,cy,w,h,th,X,Y); C[m,:3]=col; C[m,3]=255
+    return Image.fromarray(C.clip(0,255).astype(np.uint8),'RGBA')
+
 import xml.etree.ElementTree as ET
 def load_masks(xml_path,tga_dir):
     """per-car livery projection: returns {panel: dict(box=(xmin,xmax,ymin,ymax) in pos units, sil=bool array in pos-unit resolution of 1 unit/px, flipY)}"""

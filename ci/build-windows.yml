@@ -22,7 +22,8 @@ jobs:
         shell: pwsh
         run: |
           pip install -r requirements.txt pyinstaller
-          pyinstaller --onefile --name fm4livery --add-binary "fm4livery/lib/fzlzx.dll;fm4livery/lib" run_livery.py
+          pyinstaller --onefile --name fm4livery --collect-all webview --add-binary "fm4livery/lib/fzlzx.dll;fm4livery/lib" run_livery.py
+          pyinstaller --onefile --noconsole --name "FM4 Livery Tool" --collect-all webview --add-binary "fm4livery/lib/fzlzx.dll;fm4livery/lib" run_livery.py
       - name: Smoke test
         shell: pwsh
         run: ./dist/fm4livery.exe --help
@@ -30,7 +31,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force pkg | Out-Null
-          Copy-Item dist/fm4livery.exe, README.md, THIRD_PARTY.md pkg/
+          Copy-Item dist/fm4livery.exe, "dist/FM4 Livery Tool.exe", README.md, THIRD_PARTY.md pkg/
           Compress-Archive -Path pkg/* -DestinationPath fm4livery-windows.zip
       - uses: actions/upload-artifact@v4
         with: { name: fm4livery-windows, path: fm4livery-windows.zip }
