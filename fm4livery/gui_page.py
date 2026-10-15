@@ -69,7 +69,7 @@ __VIEWER_CSS__
      <div class="panels" id="prevGrid"></div>
      <div id="applyBox" class="hide"><p id="totalNote" class="note"></p>
        <label class="chk hide" id="closedBox"><input type="checkbox" id="closed"> The game is closed</label>
-       <p><button id="btnApply">Write to slot</button></p></div>
+       <p><button id="btnApply">Write to slot</button> <button class="sec" id="btnOpenEd">Open in editor</button> <span class="note">How</span> <select id="openHow" style="width:auto"><option value="replace">Replace these panels</option><option value="append">Add on top of existing layers</option></select></p></div>
    </div>
    <div id="t_share" class="hide">
      <h2>Export the selected slot</h2><p class="note">Saves a shareable <code>.fm4livery</code> file (not tied to your profile).</p><button id="btnExp">Export</button> <span id="expOut" class="note"></span>
@@ -83,7 +83,7 @@ __VIEWER_HTML__
  </div>
 </main>
 <script>
-const TOKEN="__TOKEN__";let sel=null,rows=[],prevId=null,busy=false,lastPanels=null,viewKey=null;
+const TOKEN="__TOKEN__";let sel=null,rows=[],prevId=null,prevSlot=null,busy=false,lastPanels=null,viewKey=null;
 const $=s=>document.querySelector(s);
 function log(m,c){const e=$('#log');const d=document.createElement('div');d.textContent=m;if(c)d.className=c;e.appendChild(d);e.scrollTop=e.scrollHeight}
 async function api(n,d){const r=await fetch('/api/'+n,{method:'POST',headers:{'X-Token':TOKEN,'Content-Type':'application/json'},body:JSON.stringify(d||{})});const j=await r.json();if(j.error)throw new Error(j.error);return j}
@@ -108,11 +108,16 @@ $('#btnPrev').onclick=async()=>{const f=$('#img').files[0];if(!sel)return log('p
  const panels=[...document.querySelectorAll('#panelBoxes input:checked')].map(x=>x.value);if(!panels.length)return log('tick at least one panel','warn');
  if(panels.includes('wing'))log('note: the wing only paints about 60% of the blade','warn');
  const btn=$('#btnPrev');setBusy(true,btn,'Fitting shapes…');$('#prevNote').textContent='this can take up to a minute';
- try{const r=await api('preview',{slot:sel,image:await b64(f),panels,shapes:+$('#shapes').value,fill:$('#fill').value,carzip:$('#zipSel').value});prevId=r.id;lastPanels=r.panels;if(window.V)V.setLivery(r.panels);const g=$('#prevGrid');g.innerHTML='';
+ try{const r=await api('preview',{slot:sel,image:await b64(f),panels,shapes:+$('#shapes').value,fill:$('#fill').value,carzip:$('#zipSel').value});prevId=r.id;prevSlot=sel;lastPanels=r.panels;if(window.V)V.setLivery(r.panels);const g=$('#prevGrid');g.innerHTML='';
   Object.entries(r.panels).forEach(([n,p])=>{const d=document.createElement('div');d.className='pv';d.innerHTML='<b>'+n+' - '+p.layers+' layers</b><img src="data:image/png;base64,'+p.png+'">';g.appendChild(d)});
   $('#applyBox').classList.remove('hide');$('#totalNote').innerHTML=r.total_layers+' layers in total'+(r.total_layers>1000?' <span class="bad">- over the editor limit of 1000</span>':'');log('preview ready ('+r.total_layers+' layers)','ok')}
  catch(e){log('preview: '+e.message,'bad')}finally{setBusy(false,btn);$('#prevNote').textContent=''}};
 $('#btnApply').onclick=async()=>{const btn=$('#btnApply');setBusy(true,btn,'Writing…');try{const r=await api('apply',{id:prevId,game_closed:$('#closed').checked});if(r.needs_confirm){log(r.message,'warn')}else{r.messages.forEach(m=>log(m,'ok'));log('Done. In the game, switch to another car and back (or restart) to see the change.','ok');loadGarage()}}catch(e){log('apply: '+e.message,'bad')}finally{setBusy(false,btn)}};
+$('#btnOpenEd').onclick=async()=>{const btn=$('#btnOpenEd');if(!prevId)return log('run Preview first','warn');
+ if(prevSlot!==sel)return log('this preview was made for another slot - run Preview again','warn');
+ setBusy(true,btn,'Opening…');
+ try{const r=await api('fitlayers',{id:prevId});document.querySelector('.tabs button[data-t=edit]').click();await E.importLayers(r.panels,$('#openHow').value)}
+ catch(e){log('open in editor: '+e.message,'bad')}finally{setBusy(false,btn)}};
 $('#btnExp').onclick=async()=>{if(!sel)return log('pick a garage slot first','warn');try{const r=await api('export',{slot:sel});$('#expOut').textContent=r.path;log('exported to '+r.path,'ok')}catch(e){log('export: '+e.message,'bad')}};
 $('#btnImp').onclick=async()=>{const f=$('#impFile').files[0];if(!sel)return log('pick a garage slot first','warn');if(!f)return log('choose a .fm4livery file','warn');try{const r=await api('import',{slot:sel,file:await b64(f),game_closed:$('#closed2').checked});if(r.needs_confirm)log(r.message,'warn');else{r.messages.forEach(m=>log(m,'ok'));loadGarage()}}catch(e){log('import: '+e.message,'bad')}};
 async function loadBak(){try{const r=await api('backups');const L=$('#bakList');L.innerHTML='';if(!r.files.length)L.textContent='No backups yet.';r.files.forEach(f=>{const d=document.createElement('div');d.style.cssText='display:flex;gap:10px;align-items:center;padding:4px 0;border-bottom:1px solid var(--line)';d.innerHTML='<span style="flex:1;word-break:break-all">'+f+'</span>';const b=document.createElement('button');b.className='sec';b.textContent='Restore';b.onclick=async()=>{try{const x=await api('restore',{file:f});log('restored '+x.restored,'ok');loadGarage()}catch(e){log('restore: '+e.message,'bad')}};d.appendChild(b);L.appendChild(d)})}catch(e){log('backups: '+e.message,'bad')}}

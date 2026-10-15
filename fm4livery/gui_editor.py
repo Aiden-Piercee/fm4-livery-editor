@@ -223,7 +223,10 @@ document.addEventListener('keyup',ev=>{if(ev.key===' ')spaceDown=false});
 
 // ---- slot load and save ----
 const sel_slot=()=>window.__slot&&window.__slot();
-async function load(force){if(!sel_slot())return false;const k=sel_slot()+'|'+$('#zipSel').value;if(!force&&k===key)return true;
+let lastLoad=null;
+const load=force=>{const p=loadSlot(force);lastLoad=p.catch(()=>{});return p};
+async function texMap(names){const tp={};for(const n of names){if(data.panels[n].layers.length){const c=await renderTex(n,1.5);tp[n]={tex:c.toDataURL('image/png').split(',')[1]}}}return tp}
+async function loadSlot(force){if(!sel_slot())return false;const k=sel_slot()+'|'+$('#zipSel').value;if(!force&&k===key)return true;
  if(dirty&&!window.confirm('Discard the unsaved layer changes?'))return true;
  $('#eInfo').textContent='reading the livery...';data=await api('slot',{slot:sel_slot(),carzip:$('#zipSel').value});shapes=Object.assign(shapes,data.shapes);sils={};key=k;sel=-1;vDisarm();
  dirty=false;U=[];R=[];cur=snap();saved=cur;
@@ -232,7 +235,7 @@ async function load(force){if(!sel_slot())return false;const k=sel_slot()+'|'+$(
  $('#eClosedBox').classList.toggle('hide',!!data.have_file);
  await draw();
  // textures for the 3D view
- const tp={};for(const n of names){if(data.panels[n].layers.length){const c=await renderTex(n,1.5);tp[n]={tex:c.toDataURL('image/png').split(',')[1]}}}return tp}
+ return texMap(names)}
 async function save(){if(!data)return;commit();const btn=$('#eSave');const panels={};for(const n of Object.keys(data.panels))panels[n]=data.panels[n].layers;
  setBusy(true,btn,'Saving...');
  try{const r=await api('savelayers',{slot:sel_slot(),panels:panels,game_closed:$('#eClosed').checked});
@@ -244,6 +247,32 @@ async function save(){if(!data)return;commit();const btn=$('#eSave');const panel
  catch(e){log('save: '+e.message,'bad')}
  finally{setBusy(false,btn);updBtns()}}
 
+// ---- import the layers of a finished 'Image to livery' preview (nothing is written until Save) ----
+async function importLayers(panels,mode){
+ try{await lastLoad}catch(e){}
+ const here=()=>!!data&&key===sel_slot()+'|'+$('#zipSel').value;
+ if(!here())return log('editor: the open slot is not the one to import into - nothing imported','warn');
+ if(mode!=='replace'&&mode!=='append')return log('editor: unknown import mode','bad');
+ const names=Object.keys(panels||{}).filter(n=>data.panels[n]);
+ if(!names.length)return log('editor: none of the preview panels exist on this car - nothing imported','warn');
+ const ids=new Set([101,102,103]);names.forEach(n=>panels[n].forEach(l=>ids.add(+l.shape)));
+ try{await vMeshes([...ids])}catch(e){log('shapes: '+e.message,'warn')}
+ if(!here())return log('editor: the slot changed during the import - nothing imported','warn');
+ const inc=names.reduce((a,n)=>a+panels[n].length,0);
+ let after=0;for(const n of Object.keys(data.panels)){const cur=data.panels[n].layers.length;after+=!names.includes(n)?cur:mode==='append'?cur+panels[n].length:panels[n].length}
+ if(after>VMAX)return log('editor: import refused - '+after+' layers in total would be over the limit of '+VMAX+'. Nothing changed.','warn');
+ commit();// undo point: the state before the import
+ let best=names[0],bestC=-1;
+ for(const n of names){const add=panels[n].map(l=>Object.assign({},l));
+  data.panels[n].layers=mode==='append'?data.panels[n].layers.concat(add):add;
+  if(add.length>bestC){bestC=add.length;best=n}}
+ touch();commit();
+ const used=new Set();for(const n of Object.keys(data.panels))data.panels[n].layers.forEach(l=>used.add(l.shape));
+ data.missing=[...used].filter(i=>!shapes[i]);
+ panel=best;sel=-1;vDisarm();$('#ePanel').value=best;
+ await draw();
+ log('imported '+inc+' layers ('+mode+') - review, then Save to slot','ok');
+ try{const tp=await texMap(Object.keys(data.panels));if(window.__setSlotTex)window.__setSlotTex(tp)}catch(e){log('3D view: '+e.message,'warn')}}
 $('#ePanel').onchange=e=>{panel=e.target.value;sel=-1;vDisarm();draw()};
 $('#eReload').onclick=()=>load(true).then(tp=>{if(tp&&tp!==true&&window.__setSlotTex)window.__setSlotTex(tp)}).catch(e=>log('editor: '+e.message,'bad'));
 $('#eSave').onclick=save;
@@ -313,5 +342,5 @@ $('#pkNext').onclick=()=>{pkPage++;vRender()};
 $('#pkCancel').onclick=e=>{e.preventDefault();vDisarm()};
 $('#eChange').onclick=vArmChange;
 updBtns();
-return{load}})();
+return{load,importLayers}})();
 '''
