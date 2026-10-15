@@ -17,6 +17,20 @@ CSS = r'''
 .eform input{width:100%;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:7px;padding:5px 7px;font:inherit}
 .eform input[type=color]{height:30px;padding:2px}
 .eform input:disabled{opacity:.45}
+.pkpick{margin-top:2px;border:1px solid var(--line);border-radius:8px;background:var(--bg);padding:8px 10px}
+.pkpick>summary{cursor:pointer;font-size:13px;font-weight:600}
+.pkpick .pkbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0 6px}
+.pkpick #pkCat{width:auto;flex:0 0 auto;min-width:150px}
+.pkpick #pkFilter{width:200px;flex:0 0 auto}
+.pkpick .pknav{display:flex;gap:6px;align-items:center}
+.pkgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:6px;max-height:280px;overflow:auto;padding:2px}
+.pkcell{background:#0d0f13;border:1px solid var(--line);border-radius:6px;padding:4px 3px 3px;cursor:pointer;display:flex;flex-direction:column;align-items:center;min-width:0}
+.pkcell:hover{border-color:var(--accent);background:#162233}
+.pkcell canvas{width:56px;height:56px;display:block}
+.pkcell span{font-size:10px;color:var(--mute);max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.pkcell.bad{opacity:.45;cursor:default}
+.pkhint{margin:4px 0;color:var(--warn);font-size:12px}
+.pkhint a{color:var(--accent);margin-left:6px}
 '''
 
 HTML = r'''
@@ -29,7 +43,7 @@ HTML = r'''
      <div class="note" id="eInfo"></div>
      <div class="etools">
        <button class="sec" id="eUndo" title="Ctrl+Z">Undo</button><button class="sec" id="eRedo" title="Ctrl+Y or Ctrl+Shift+Z">Redo</button>
-       <button class="sec" id="eDup">Duplicate</button><button class="sec" id="eFwd">Bring forward</button><button class="sec" id="eBack">Send back</button><button class="sec" id="eDel" title="Delete key">Delete</button>
+       <button class="sec" id="eDup">Duplicate</button><button class="sec" id="eFwd">Bring forward</button><button class="sec" id="eBack">Send back</button><button class="sec" id="eDel" title="Delete key">Delete</button><button class="sec" id="eChange" title="Swap the shape of the selected layer for one picked from Add shape">Change shape</button>
        <span class="note">Drag to move - handles resize - top handle rotates - wheel zooms - right/middle drag or Space+drag pans - arrows nudge (Shift = 10)</span>
      </div>
      <div class="egrid"><div class="ewrap" id="eWrap"><canvas id="eCv"></canvas></div>
@@ -45,6 +59,16 @@ HTML = r'''
            <label>Colour <input type="color" data-k="col"></label>
            <label>Opacity 0-255 <input type="number" min="0" max="255" step="1" data-k="op"></label>
          </div></div></div>
+     <details class="pkpick" id="eVin"><summary>Add shape - pick a vinyl from Livery.zip (top of the selected panel)</summary>
+       <div class="pkbar">
+         <select id="pkCat" title="Category"><option value="">All categories</option></select>
+         <input type="text" id="pkFilter" placeholder="Filter by name or id">
+         <span class="pknav"><button class="sec" id="pkPrev">Prev</button><span class="note" id="pkPage"></span><button class="sec" id="pkNext">Next</button></span>
+         <span class="note" id="pkStat"></span>
+       </div>
+       <div class="pkhint hide" id="pkHint">Replacing shape of layer #<span id="pkHintN"></span> - click a thumbnail <a href="#" id="pkCancel">cancel</a></div>
+       <div class="pkgrid" id="pkGrid"></div>
+     </details>
    </div>
 '''
 
@@ -78,10 +102,11 @@ function corner(g,hx,hy){return[g.cx+hx*g.w/2*g.u[0]+hy*g.h/2*g.v[0],g.cy+hx*g.w
 function rotPt(g){const d=g.h/2+26;return[g.cx+d*g.v[0],g.cy+d*g.v[1]]}
 const HANDLES=[[-1,-1],[0,-1],[1,-1],[1,0],[1,1],[0,1],[-1,1],[-1,0]];
 const dist=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
+const locked=i=>{if(i!==0||!data||!panel)return false;const P=data.panels[panel],L=P.layers[0];if(!L)return false;const b=P.box;return L.sx*K>=0.9*(b[1]-b[0])&&L.sy*K>=0.9*(b[3]-b[2])};
 function hit(V,mx,my){const Ls=V.P.layers;
- if(sel>0&&Ls[sel]){const g=geom(V,Ls[sel]);if(dist(rotPt(g),[mx,my])<=9)return{t:'rot',g};
+ if(sel>=0&&!locked(sel)&&Ls[sel]){const g=geom(V,Ls[sel]);if(dist(rotPt(g),[mx,my])<=9)return{t:'rot',g};
   for(const [hx,hy] of HANDLES){if(dist(corner(g,hx,hy),[mx,my])<=8)return{t:'h',hx,hy,g}}}
- for(let i=Ls.length-1;i>=0;i--){const g=geom(V,Ls[i]),dx=mx-g.cx,dy=my-g.cy;
+ for(let i=Ls.length-1;i>=0;i--){if(locked(i))continue;const g=geom(V,Ls[i]),dx=mx-g.cx,dy=my-g.cy;
   if(Math.abs(dx*g.u[0]+dy*g.u[1])<=g.w/2&&Math.abs(dx*g.v[0]+dy*g.v[1])<=g.h/2)return{t:'body',i}}
  return null}
 function overlay(ctx,V){const L=V.P.layers[sel];if(!L)return;const g=geom(V,L);
@@ -111,11 +136,11 @@ function updCount(){if(!data)return;let t=0;for(const n of Object.keys(data.pane
  const c=$('#eCount');c.textContent=t+' layers in total (limit 1000)';c.className='note'+(t>1000?' warn':'');
  for(const o of $('#ePanel').options){if(data.panels[o.value])o.textContent=o.value+' ('+data.panels[o.value].layers.length+')'}}
 function updBtns(){const n=(data&&panel)?data.panels[panel].layers.length:0,has=!!data&&sel>0;
- $('#eDel').disabled=!has;$('#eDup').disabled=!has;$('#eFwd').disabled=!(has&&sel<n-1);$('#eBack').disabled=!(sel>1);
+ $('#eDel').disabled=!has;$('#eChange').disabled=!has;$('#eDup').disabled=!has;$('#eFwd').disabled=!(has&&sel<n-1);$('#eBack').disabled=!(sel>1);
  $('#eUndo').disabled=!U.length;$('#eRedo').disabled=!R.length;$('#eSave').disabled=!data}
 function updForm(){const L=(data&&panel&&sel>=0)?data.panels[panel].layers[sel]:null;
  document.querySelectorAll('#eForm [data-k]').forEach(el=>{const k=el.dataset.k;
-  el.disabled=!L||(sel===0&&ELEM.includes(k));
+  el.disabled=!L||(locked(sel)&&ELEM.includes(k));
   if(el===document.activeElement)return;
   if(!L){el.value=(k==='col'?'#000000':'');return}
   if(k==='col'){const [r,g,b]=argb(L.argb);el.value='#'+[r,g,b].map(v=>v.toString(16).padStart(2,'0')).join('')}
@@ -126,7 +151,7 @@ function formIn(el){if(!data||sel<0)return;const L=data.panels[panel].layers[sel
   const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
   let op=Math.round(parseFloat(document.querySelector('#eForm [data-k=op]').value));if(!isFinite(op))return;op=Math.min(255,Math.max(0,op));
   L.argb=((op<<24)|(r<<16)|(g<<8)|b)>>>0}
- else{if(sel===0&&ELEM.includes(k))return;const v=parseFloat(el.value);if(!isFinite(v))return;L[k]=v}
+ else{if(locked(sel)&&ELEM.includes(k))return;const v=parseFloat(el.value);if(!isFinite(v))return;L[k]=v}
  touch();draw()}
 
 // ---- undo / dirty state (snapshot based, per slot load, max 100 steps) ----
@@ -140,12 +165,12 @@ function undo(){if(!data)return;commit();if(!U.length)return;R.push(cur);cur=U.p
 function redo(){if(!data)return;commit();if(!R.length)return;U.push(cur);cur=R.pop();restore(cur);dirty=cur!==saved;draw()}
 
 // ---- layer operations (layer 0 is the panel background: never deleted or moved) ----
-function del(){if(!data||sel<=0)return;data.panels[panel].layers.splice(sel,1);sel=-1;commit();draw()}
-function dup(){if(!data||sel<=0)return;const Ls=data.panels[panel].layers,L=Ls[sel];Ls.splice(sel+1,0,Object.assign({},L,{x:L.x+10,y:L.y+10}));sel++;commit();draw()}
+function del(){if(!data||sel<0||locked(sel))return;data.panels[panel].layers.splice(sel,1);sel=-1;commit();draw()}
+function dup(){if(!data||sel<0||locked(sel))return;const Ls=data.panels[panel].layers,L=Ls[sel];Ls.splice(sel+1,0,Object.assign({},L,{x:L.x+10,y:L.y+10}));sel++;commit();draw()}
 function swapSel(j){const Ls=data.panels[panel].layers;[Ls[sel],Ls[j]]=[Ls[j],Ls[sel]];sel=j}
-function fwd(){if(!data||sel<=0||sel>=data.panels[panel].layers.length-1)return;swapSel(sel+1);commit();draw()}
-function back(){if(!data||sel<=1)return;swapSel(sel-1);commit();draw()}
-function nudge(dx,dy){if(!data||sel<=0)return;const L=data.panels[panel].layers[sel];L.x+=dx;L.y+=dy;touch();nudgeLater();draw()}
+function fwd(){if(!data||sel<0||locked(sel)||sel>=data.panels[panel].layers.length-1)return;swapSel(sel+1);commit();draw()}
+function back(){if(!data||sel<1||(sel===1&&locked(0)))return;swapSel(sel-1);commit();draw()}
+function nudge(dx,dy){if(!data||sel<0||locked(sel))return;const L=data.panels[panel].layers[sel];L.x+=dx;L.y+=dy;touch();nudgeLater();draw()}
 
 // ---- canvas: select, move, resize, rotate, zoom, pan ----
 const cv=$('#eCv'),wrap=$('#eWrap');
@@ -200,7 +225,7 @@ document.addEventListener('keyup',ev=>{if(ev.key===' ')spaceDown=false});
 const sel_slot=()=>window.__slot&&window.__slot();
 async function load(force){if(!sel_slot())return false;const k=sel_slot()+'|'+$('#zipSel').value;if(!force&&k===key)return true;
  if(dirty&&!window.confirm('Discard the unsaved layer changes?'))return true;
- $('#eInfo').textContent='reading the livery...';data=await api('slot',{slot:sel_slot(),carzip:$('#zipSel').value});shapes=data.shapes;sils={};key=k;sel=-1;
+ $('#eInfo').textContent='reading the livery...';data=await api('slot',{slot:sel_slot(),carzip:$('#zipSel').value});shapes=Object.assign(shapes,data.shapes);sils={};key=k;sel=-1;vDisarm();
  dirty=false;U=[];R=[];cur=snap();saved=cur;
  const names=Object.keys(data.panels);const ps=$('#ePanel');const old=ps.value;ps.innerHTML='';names.forEach(n=>{const o=document.createElement('option');o.value=n;o.textContent=n+' ('+data.panels[n].layers.length+')';ps.appendChild(o)});
  panel=names.includes(old)?old:(names.find(n=>data.panels[n].layers.length)||names[0]);ps.value=panel;
@@ -219,11 +244,74 @@ async function save(){if(!data)return;commit();const btn=$('#eSave');const panel
  catch(e){log('save: '+e.message,'bad')}
  finally{setBusy(false,btn);updBtns()}}
 
-$('#ePanel').onchange=e=>{panel=e.target.value;sel=-1;draw()};
+$('#ePanel').onchange=e=>{panel=e.target.value;sel=-1;vDisarm();draw()};
 $('#eReload').onclick=()=>load(true).then(tp=>{if(tp&&tp!==true&&window.__setSlotTex)window.__setSlotTex(tp)}).catch(e=>log('editor: '+e.message,'bad'));
 $('#eSave').onclick=save;
 $('#eUndo').onclick=undo;$('#eRedo').onclick=redo;$('#eDup').onclick=dup;$('#eFwd').onclick=fwd;$('#eBack').onclick=back;$('#eDel').onclick=del;
 document.querySelectorAll('#eForm [data-k]').forEach(el=>{el.addEventListener('input',()=>formIn(el));el.addEventListener('change',()=>{commit();draw()})});
+// ---- vinyl picker: add a shape from Livery.zip, or swap the shape of the selected layer ----
+let VCAT=null,VLoad=null,pkPage=0,vTok=0,vArm=null,vFT=null;
+const VPER=60,VMAX=1000,VFAIL=new Set();
+function pkStat(t,c){const e=$('#pkStat');e.textContent=t;e.className='note'+(c?' '+c:'')}
+function vTotal(){let t=0;for(const n of Object.keys(data.panels))t+=data.panels[n].layers.length;return t}
+function vDisarm(){vArm=null;$('#pkHint').classList.add('hide')}
+function vThumb(cv,S,msg){const c=cv.getContext('2d'),W=cv.width,H=cv.height;c.fillStyle='#0d0f13';c.fillRect(0,0,W,H);
+ if(!S||!S.v||!S.v.length){c.fillStyle='#6b7383';c.font='13px sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText(msg||'',W/2,H/2);return}
+ let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;
+ for(let j=0;j<S.v.length;j+=2){const x=S.v[j],y=S.v[j+1];if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y}
+ const pad=6,bw=Math.max(1e-6,x1-x0),bh=Math.max(1e-6,y1-y0),s=Math.min((W-2*pad)/bw,(H-2*pad)/bh),ox=(W-bw*s)/2,oy=(H-bh*s)/2;
+ const P=j=>[ox+(S.v[j*2]-x0)*s,oy+(y1-S.v[j*2+1])*s];
+ const T=S.t;c.fillStyle='#ffffff';c.beginPath();
+ for(let k=0;k+2<T.length;k+=3){let A=P(T[k]),B=P(T[k+1]),C=P(T[k+2]);const ar=(B[0]-A[0])*(C[1]-A[1])-(B[1]-A[1])*(C[0]-A[0]);if(ar<0){const t=B;B=C;C=t}
+  c.moveTo(A[0],A[1]);c.lineTo(B[0],B[1]);c.lineTo(C[0],C[1]);c.closePath()}
+ c.fill()}
+function vCatLoad(){
+ if(VCAT)return Promise.resolve(VCAT);
+ if(!VLoad)VLoad=api('vinylcat',{}).then(r=>{VCAT=(r.items||[]).map(x=>({id:x.id,name:x.name||('shape '+x.id),cat:x.cat||''}));
+   const sel=$('#pkCat');sel.innerHTML='';const a=document.createElement('option');a.value='';a.textContent='All categories';sel.appendChild(a);
+   [...new Set(VCAT.map(x=>x.cat))].sort().forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;sel.appendChild(o)});
+   pkStat(VCAT.length+' shapes in the catalogue','');return VCAT}).catch(e=>{VLoad=null;pkStat('catalogue: '+e.message,'bad');throw e});
+ return VLoad}
+function vList(){const c=$('#pkCat').value,q=$('#pkFilter').value.trim().toLowerCase();
+ return VCAT.filter(x=>(!c||x.cat===c)&&(!q||x.name.toLowerCase().includes(q)||String(x.id)===q))}
+async function vMeshes(ids){const need=[...new Set(ids)].filter(i=>!shapes[i]&&!VFAIL.has(i));
+ for(let i=0;i<need.length;i+=120){const part=need.slice(i,i+120),r=await api('vinylshapes',{ids:part});Object.assign(shapes,r.shapes||{});part.forEach(id=>{if(!shapes[id])VFAIL.add(id)})}}
+async function vRender(){const my=++vTok;if(!VCAT)return;
+ const list=vList(),pages=Math.max(1,Math.ceil(list.length/VPER));pkPage=Math.max(0,Math.min(pkPage,pages-1));
+ const items=list.slice(pkPage*VPER,pkPage*VPER+VPER),g=$('#pkGrid');g.innerHTML='';
+ $('#pkPage').textContent=list.length?(pkPage*VPER+1)+'-'+(pkPage*VPER+items.length)+' of '+list.length:'no shapes match';
+ $('#pkPrev').disabled=pkPage<=0;$('#pkNext').disabled=pkPage>=pages-1;
+ const cells=items.map(it=>{const d=document.createElement('div');d.className='pkcell';d.title=it.name+' (#'+it.id+')';
+  const cv=document.createElement('canvas');cv.width=112;cv.height=112;const cap=document.createElement('span');cap.textContent=it.name;
+  d.append(cv,cap);d.onclick=()=>vPick(it);g.appendChild(d);vThumb(cv,shapes[it.id],'...');return{it,cv,d}});
+ let err=null;try{await vMeshes(items.map(x=>x.id))}catch(e){err=e;pkStat('shapes: '+e.message,'bad')}
+ if(my!==vTok)return;
+ cells.forEach(({it,cv,d})=>{if(shapes[it.id])vThumb(cv,shapes[it.id]);else if(err)vThumb(cv,null,'...');
+  else{d.classList.add('bad');d.title=it.name+' (#'+it.id+') - cannot be read';vThumb(cv,null,'unreadable')}})}
+async function vPick(it){
+ if(!data||!panel)return log('open the Editor on a garage slot first','warn');
+ try{await vMeshes([it.id])}catch(e){return log('shape '+it.id+': '+e.message,'bad')}
+ const rep=vArm;
+ if(!shapes[it.id])return log('shape '+it.id+' ('+it.name+') cannot be read - nothing changed','bad');
+ if(rep){
+  if(rep.p!==panel||rep.i<0||!data.panels[rep.p]||!data.panels[rep.p].layers[rep.i]){vDisarm();return log('the layer being replaced is no longer there - cancelled','warn')}
+  const L=data.panels[rep.p].layers[rep.i],old=L.shape;L.shape=it.id;touch();commit();draw();vDisarm();
+  return log('layer #'+(rep.i+1)+' on '+rep.p+': shape '+old+' changed to '+it.id+' ('+it.name+')','ok')}
+ if(vTotal()+1>VMAX)return log('the editor limit is '+VMAX+' layers - '+it.name+' not added','warn');
+ const P=data.panels[panel],Ls=P.layers,[x0,x1,y0,y1]=P.box,col=(sel>=0&&Ls[sel])?$('#eForm [data-k=col]').value:'#ffffff';
+ const r=parseInt(col.slice(1,3),16),g=parseInt(col.slice(3,5),16),b=parseInt(col.slice(5,7),16);
+ Ls.push({shape:it.id,x:(x0+x1)/2,y:(y0+y1)/2,sx:0.5,sy:0.5,spin:0,skew:0,argb:((0xff<<24)|(r<<16)|(g<<8)|b)>>>0});
+ sel=Ls.length-1;touch();commit();draw();log('added shape '+it.id+' ('+it.name+') as layer #'+(sel+1)+' on '+panel,'ok')}
+function vOpen(){if(!$('#eVin').open)return;vCatLoad().then(vRender).catch(()=>{})}
+function vArmChange(){if(!data||!panel||sel<0||locked(sel))return;vArm={p:panel,i:sel};$('#pkHintN').textContent=sel+1;$('#pkHint').classList.remove('hide');
+ $('#eVin').open=true;vOpen()}
+$('#eVin').addEventListener('toggle',vOpen);
+$('#pkFilter').oninput=()=>{clearTimeout(vFT);vFT=setTimeout(()=>{pkPage=0;vRender()},150)};
+$('#pkCat').onchange=()=>{pkPage=0;vRender()};
+$('#pkPrev').onclick=()=>{pkPage--;vRender()};
+$('#pkNext').onclick=()=>{pkPage++;vRender()};
+$('#pkCancel').onclick=e=>{e.preventDefault();vDisarm()};
+$('#eChange').onclick=vArmChange;
 updBtns();
 return{load}})();
 '''

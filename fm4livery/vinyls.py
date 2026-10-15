@@ -30,12 +30,12 @@ def _fallback_name(i):
 
 
 def _parse(d):
-    for o in range(0, len(d) - 12, 4):
+    for o in range(0, len(d) - 12):
         v, n, s = struct.unpack_from('>3I', d, o)
-        if s == 0x24 and v in (1, 2) and 3 <= n < 5000:
+        if s in (0x24, 0x48) and v in (1, 2) and 3 <= n < 200000 and o + 12 + n * s <= len(d):
             vo = o + 12
-            vs = [struct.unpack_from('>3f', d, vo + i * 36) for i in range(n)]
-            e = vo + n * 36
+            vs = [struct.unpack_from('>3f', d, vo + i * s) for i in range(n)]
+            e = vo + n * s
             for p in range(e, len(d) - 16):
                 a, m, b = struct.unpack_from('>3I', d, p)
                 if a == 3 and b == 2 and 3 <= m < 60000 and p + 12 + m * 2 <= len(d):
@@ -83,3 +83,24 @@ def shapes(media, ids):
                 continue
             st['shapes'][i] = dict(v=[round(c, 4) for v3 in vs for c in v3[:2]], t=[j for t in _tris(idx) for j in t])
     return {i: st['shapes'][i] for i in ids if i in st['shapes']}
+
+
+def catalogue(media):
+    """[{id, name, cat}] for every vinyl: from Livery_VinylsDecals when gamedb.slt is there, else the known id pattern (a_01..t_40, u_01..u_80)."""
+    out = []
+    p = os.path.join(media, 'db', 'gamedb.slt') if media else ''
+    if p and os.path.exists(p):
+        try:
+            c = sqlite3.connect('file:%s?mode=ro' % p, uri=True)
+            for i, cat, name in c.execute('select ID, Category, Name from Livery_VinylsDecals order by ID'):
+                out.append(dict(id=int(i), name=name, cat=re.split(r'[\\ _]', name or '')[0].upper() or str(cat)))
+            c.close()
+        except sqlite3.Error:
+            out = []
+    if not out:
+        for k in range(1, 21):
+            for n in range(1, 41):
+                out.append(dict(id=k * 100 + n, name='%s %02d' % (chr(64 + k), n), cat=chr(64 + k)))
+        for i in list(range(2101, 2141)) + list(range(2201, 2241)):
+            out.append(dict(id=i, name='U %02d' % ((i % 100) + (0 if i < 2200 else 40)), cat='U'))
+    return out

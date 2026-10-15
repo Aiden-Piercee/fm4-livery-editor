@@ -79,6 +79,13 @@ class Api:
         _, ok, back = crypto.decrypt_liv(open(app.liv_path(c, slot), 'rb').read(), c['pe'], c['xuid'])
         if not ok or [len(x) for x in design.parse(back)['panels']] != [len(pan.get(n, [])) for n in design.PANELS]: raise app.AppError('saved file failed the re-read check - restore from Backups')
         return dict(messages=msgs + ['re-read check passed'])
+    def vinylcat(self, d):
+        c = self.need()
+        if not c['media'] or not os.path.exists(os.path.join(c['media'], 'Livery.zip')): raise app.AppError('Livery.zip not found - set the Media folder in the setup box')
+        return dict(items=vinyls.catalogue(c['media']))
+    def vinylshapes(self, d):
+        c = self.need(); ids = [int(i) for i in d.get('ids', [])][:120]
+        return dict(shapes={str(k): v for k, v in vinyls.shapes(c['media'], ids).items()} if c['media'] else {})
     def apply(self, d):
         c = self.need(); f = self.fits.get(d['id'])
         if not f: raise app.AppError('preview expired - run Preview again')
@@ -100,7 +107,7 @@ class Api:
         return dict(messages=warn + app.write_liv(c, g, slot, share.to_plain(m, row['car_id'], c['xuid'])))
     def backups(self): c = self.need(); return dict(files=[os.path.relpath(p, c['profile']) for p in app.backups(c)])
     def restore(self, d): c = self.need(); return dict(restored=os.path.relpath(app.restore(c, os.path.join(c['profile'], d['file'])), c['profile']))
-ROUTES = {'setup': lambda a, d: a.setup(d.get('root') or '', d.get('profile'), pe=d.get('pe'), media=d.get('media')), 'state': lambda a, d: a.state(), 'garage': lambda a, d: a.garage(), 'preview': lambda a, d: a.preview(d), 'model': lambda a, d: a.model(d), 'slot': lambda a, d: a.slot(d), 'savelayers': lambda a, d: a.savelayers(d),
+ROUTES = {'setup': lambda a, d: a.setup(d.get('root') or '', d.get('profile'), pe=d.get('pe'), media=d.get('media')), 'state': lambda a, d: a.state(), 'garage': lambda a, d: a.garage(), 'preview': lambda a, d: a.preview(d), 'model': lambda a, d: a.model(d), 'slot': lambda a, d: a.slot(d), 'savelayers': lambda a, d: a.savelayers(d), 'vinylcat': lambda a, d: a.vinylcat(d), 'vinylshapes': lambda a, d: a.vinylshapes(d),
           'apply': lambda a, d: a.apply(d), 'export': lambda a, d: a.export(d), 'import': lambda a, d: a.import_(d), 'backups': lambda a, d: a.backups(), 'restore': lambda a, d: a.restore(d)}
 def make_server(root=None, port=0):
     api = Api(root); token = secrets.token_urlsafe(16); page = PAGE.replace('__TOKEN__', token).encode('utf-8')
