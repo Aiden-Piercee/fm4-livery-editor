@@ -67,6 +67,18 @@ class Api:
             buf = io.BytesIO(); Image.fromarray(m['sil'].astype('uint8') * 255).save(buf, 'PNG')
             pan[n] = dict(box=list(m['box']), sil=base64.b64encode(buf.getvalue()).decode(), layers=layers.get(n, []))
         return dict(car_id=row['car_id'], have_file=have, panels=pan, shapes={str(k): v for k, v in shp.items()}, missing=[i for i in ids if i not in shp])
+    def savelayers(self, d):
+        """write edited layers (dicts as returned by 'slot') for the slot: backup, sign, assign. Re-reads the file to verify."""
+        c = self.need(); slot = int(d['slot']); g = app.load_garage(c); row = app.car_row(g, c, slot)
+        if not row['livery'] and not d.get('game_closed'): return dict(needs_confirm=True, message='This slot has no livery yet. Saving will edit your PlayerDatabase (a backup is made first). Close the game, tick the box, and save again.')
+        pan = {n: [design.pack_layer(int(l['shape']), x=float(l['x']), y=float(l['y']), sx=float(l['sx']), sy=float(l['sy']), spin=float(l['spin']), skew=float(l['skew']), argb=int(l['argb']) & 0xFFFFFFFF) for l in lay]
+               for n, lay in (d.get('panels') or {}).items() if n in design.PANELS}
+        if not any(pan.values()) and not os.path.exists(app.liv_path(c, slot)): raise app.AppError('nothing to save - this slot has no livery and no layers yet')
+        if sum(len(v) for v in pan.values()) > 1000: raise app.AppError('more than 1000 layers - the in-game editor will not open it')
+        plain = design.new_design(row['car_id'], pan, c['xuid']); msgs = app.write_liv(c, g, slot, plain)
+        _, ok, back = crypto.decrypt_liv(open(app.liv_path(c, slot), 'rb').read(), c['pe'], c['xuid'])
+        if not ok or [len(x) for x in design.parse(back)['panels']] != [len(pan.get(n, [])) for n in design.PANELS]: raise app.AppError('saved file failed the re-read check - restore from Backups')
+        return dict(messages=msgs + ['re-read check passed'])
     def apply(self, d):
         c = self.need(); f = self.fits.get(d['id'])
         if not f: raise app.AppError('preview expired - run Preview again')
@@ -88,7 +100,7 @@ class Api:
         return dict(messages=warn + app.write_liv(c, g, slot, share.to_plain(m, row['car_id'], c['xuid'])))
     def backups(self): c = self.need(); return dict(files=[os.path.relpath(p, c['profile']) for p in app.backups(c)])
     def restore(self, d): c = self.need(); return dict(restored=os.path.relpath(app.restore(c, os.path.join(c['profile'], d['file'])), c['profile']))
-ROUTES = {'setup': lambda a, d: a.setup(d.get('root') or '', d.get('profile'), pe=d.get('pe'), media=d.get('media')), 'state': lambda a, d: a.state(), 'garage': lambda a, d: a.garage(), 'preview': lambda a, d: a.preview(d), 'model': lambda a, d: a.model(d), 'slot': lambda a, d: a.slot(d),
+ROUTES = {'setup': lambda a, d: a.setup(d.get('root') or '', d.get('profile'), pe=d.get('pe'), media=d.get('media')), 'state': lambda a, d: a.state(), 'garage': lambda a, d: a.garage(), 'preview': lambda a, d: a.preview(d), 'model': lambda a, d: a.model(d), 'slot': lambda a, d: a.slot(d), 'savelayers': lambda a, d: a.savelayers(d),
           'apply': lambda a, d: a.apply(d), 'export': lambda a, d: a.export(d), 'import': lambda a, d: a.import_(d), 'backups': lambda a, d: a.backups(), 'restore': lambda a, d: a.restore(d)}
 def make_server(root=None, port=0):
     api = Api(root); token = secrets.token_urlsafe(16); page = PAGE.replace('__TOKEN__', token).encode('utf-8')
