@@ -1,22 +1,31 @@
 """Read Forza zips (store / deflate / method 21 = Xbox LZX). LZX needs the small native helper
-(libfzlzx.so on Linux, fzlzx.dll on Windows) found in this folder, in ./lib, or via $FZLZX.
+(libfzlzx.so on Linux, fzlzx.dll on Windows) if present; otherwise a built-in pure-Python decoder (lzxpy.py, same algorithm) is used.
 The helper wraps libmspack's lzxd (LGPL-2.1) - dynamic linking only, source: https://github.com/kyz/libmspack"""
 import ctypes, os, struct, sys, zipfile, zlib
-_lib = None
+_lib = None; _tried = False
 def _load():
-    global _lib
-    if _lib is None:
-        here = os.path.dirname(os.path.abspath(__file__)); names = ('fzlzx.dll', 'libfzlzx.so')
-        cands = [os.environ.get('FZLZX', '')] + [os.path.join(d, n) for d in (here, os.path.join(here, 'lib'), os.path.dirname(here)) for n in names]
-        for c in cands:
-            if c and os.path.exists(c):
-                _lib = ctypes.CDLL(c); break
-        if _lib is None: raise RuntimeError('LZX helper (fzlzx.dll / libfzlzx.so) not found next to the tool')
-        _lib.fz_lzx_decompress.argtypes = [ctypes.c_char_p, ctypes.c_long, ctypes.c_char_p, ctypes.c_long, ctypes.c_int]
+    """Native helper if one matches this OS, else None (pure-Python decoder is used instead)."""
+    global _lib, _tried
+    if _tried: return _lib
+    _tried = True
+    here = os.path.dirname(os.path.abspath(__file__))
+    names = ('fzlzx.dll',) if os.name == 'nt' else ('libfzlzx.so',)
+    cands = [os.environ.get('FZLZX', '')] + [os.path.join(d, n) for d in (here, os.path.join(here, 'lib'), os.path.dirname(here)) for n in names]
+    for c in cands:
+        if c and os.path.exists(c):
+            try:
+                lib = ctypes.CDLL(c)
+                lib.fz_lzx_decompress.argtypes = [ctypes.c_char_p, ctypes.c_long, ctypes.c_char_p, ctypes.c_long, ctypes.c_int]
+                _lib = lib; break
+            except (OSError, AttributeError): continue
     return _lib
 def lzx(data, out_len, wbits=17):
+    lib = _load()
+    if lib is None:
+        from . import lzxpy
+        return lzxpy.lzx(data, out_len, wbits)
     out = ctypes.create_string_buffer(out_len)
-    if _load().fz_lzx_decompress(data, len(data), out, out_len, wbits) != 0: raise ValueError('lzx failed')
+    if lib.fz_lzx_decompress(data, len(data), out, out_len, wbits) != 0: raise ValueError('lzx failed')
     return out.raw
 def read_entry(f, info):
     f.seek(info.header_offset); h = f.read(30); nl, el = struct.unpack('<HH', h[26:30])
