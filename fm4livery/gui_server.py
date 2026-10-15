@@ -2,7 +2,7 @@
 import base64, io, json, os, secrets, threading, uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from PIL import Image
-from . import app, crypto, design, detect, garage, masks, share, __version__
+from . import app, crypto, design, detect, garage, masks, share, vinyls, __version__
 from .gui_page import PAGE
 class Api:
     def __init__(self, root=None):
@@ -50,6 +50,23 @@ class Api:
     def model(self, d):
         c = self.need(); slot = int(d['slot']); g = app.load_garage(c); row = app.car_row(g, c, slot)
         return app.model_for_zip(app.car_zip_for(c, row, d.get('carzip') or None))
+    def slot(self, d):
+        """the livery currently in a slot, decoded to layers per panel (+ shape meshes and mask silhouettes)"""
+        c = self.need(); slot = int(d['slot']); g = app.load_garage(c); row = app.car_row(g, c, slot)
+        zp = app.car_zip_for(c, row, d.get('carzip') or None); mk = masks.masks_from_zip(zp)
+        p = app.liv_path(c, slot); layers = {n: [] for n in design.PANELS}; have = os.path.exists(p)
+        if have:
+            _, ok, plain = crypto.decrypt_liv(open(p, 'rb').read(), c['pe'], c['xuid'])
+            if not ok: raise app.AppError('the livery file did not verify (wrong default.pe or a different profile)')
+            dd = design.parse(plain)
+            for n, lay in zip(design.PANELS, dd['panels']): layers[n] = [design.unpack_layer(b) for b in lay]
+        ids = sorted({l['shape'] for v in layers.values() for l in v})
+        shp = vinyls.shapes(c['media'], ids) if c['media'] else {}
+        pan = {}
+        for n, m in mk.items():
+            buf = io.BytesIO(); Image.fromarray(m['sil'].astype('uint8') * 255).save(buf, 'PNG')
+            pan[n] = dict(box=list(m['box']), sil=base64.b64encode(buf.getvalue()).decode(), layers=layers.get(n, []))
+        return dict(car_id=row['car_id'], have_file=have, panels=pan, shapes={str(k): v for k, v in shp.items()}, missing=[i for i in ids if i not in shp])
     def apply(self, d):
         c = self.need(); f = self.fits.get(d['id'])
         if not f: raise app.AppError('preview expired - run Preview again')
@@ -71,7 +88,7 @@ class Api:
         return dict(messages=warn + app.write_liv(c, g, slot, share.to_plain(m, row['car_id'], c['xuid'])))
     def backups(self): c = self.need(); return dict(files=[os.path.relpath(p, c['profile']) for p in app.backups(c)])
     def restore(self, d): c = self.need(); return dict(restored=os.path.relpath(app.restore(c, os.path.join(c['profile'], d['file'])), c['profile']))
-ROUTES = {'setup': lambda a, d: a.setup(d.get('root') or '', d.get('profile'), pe=d.get('pe'), media=d.get('media')), 'state': lambda a, d: a.state(), 'garage': lambda a, d: a.garage(), 'preview': lambda a, d: a.preview(d), 'model': lambda a, d: a.model(d),
+ROUTES = {'setup': lambda a, d: a.setup(d.get('root') or '', d.get('profile'), pe=d.get('pe'), media=d.get('media')), 'state': lambda a, d: a.state(), 'garage': lambda a, d: a.garage(), 'preview': lambda a, d: a.preview(d), 'model': lambda a, d: a.model(d), 'slot': lambda a, d: a.slot(d),
           'apply': lambda a, d: a.apply(d), 'export': lambda a, d: a.export(d), 'import': lambda a, d: a.import_(d), 'backups': lambda a, d: a.backups(), 'restore': lambda a, d: a.restore(d)}
 def make_server(root=None, port=0):
     api = Api(root); token = secrets.token_urlsafe(16); page = PAGE.replace('__TOKEN__', token).encode('utf-8')

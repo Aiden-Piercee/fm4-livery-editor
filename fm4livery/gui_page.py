@@ -29,6 +29,7 @@ input[type=range]{width:100%}label{display:block;color:var(--mute);font-size:12p
 #log{max-height:150px;overflow:auto;font:12px/1.5 Consolas,monospace;color:var(--mute);white-space:pre-wrap}
 .spin{display:inline-block;width:14px;height:14px;border:2px solid #fff4;border-top-color:#fff;border-radius:50%;animation:s 0.8s linear infinite;vertical-align:-2px;margin-right:6px}@keyframes s{to{transform:rotate(360deg)}}
 .hide{display:none!important}
+__EDITOR_CSS__
 __VIEWER_CSS__
 @media(max-width:900px){main{grid-template-columns:1fr;height:auto}}
 </style></head><body>
@@ -53,7 +54,7 @@ __VIEWER_CSS__
  </div>
  <div class="col">
   <div class="card">
-   <div class="tabs"><button data-t="make" class="on">Image to livery</button><button data-t="share" >Import / export</button><button data-t="view">3D view</button><button data-t="bak">Backups</button></div>
+   <div class="tabs"><button data-t="make" class="on">Image to livery</button><button data-t="share" >Import / export</button><button data-t="edit">Editor</button><button data-t="view">3D view</button><button data-t="bak">Backups</button></div>
    <div id="t_make">
      <div class="note" id="selInfo">Pick a garage slot on the left.</div>
      <div class="row"><div><label>Image</label><input type="file" id="img" accept="image/*"></div>
@@ -74,6 +75,7 @@ __VIEWER_CSS__
      <h2>Export the selected slot</h2><p class="note">Saves a shareable <code>.fm4livery</code> file (not tied to your profile).</p><button id="btnExp">Export</button> <span id="expOut" class="note"></span>
      <h2 style="margin-top:22px">Import into the selected slot</h2><input type="file" id="impFile" accept=".fm4livery,.zip"><p><label class="chk hide" id="closedBox2"><input type="checkbox" id="closed2"> The game is closed</label></p><button id="btnImp">Import</button>
    </div>
+__EDITOR_HTML__
 __VIEWER_HTML__
    <div id="t_bak" class="hide"><h2>Backups</h2><p class="note">Made automatically before every write. Restoring keeps a copy of what it replaces.</p><div id="bakList" class="note">…</div></div>
   </div>
@@ -97,7 +99,7 @@ async function loadGarage(){try{const g=await api('garage');rows=g.rows;const z=
 function pick(id){sel=id;document.querySelectorAll('#garage tr').forEach(t=>t.classList.toggle('sel',t.dataset.id==id));const r=rows.find(x=>x.garage_id==id);if(!r)return;
  $('#selInfo').innerHTML='Slot <b>'+r.garage_id+'</b> - '+(r.car!=='?'?r.car:'car '+r.car_id)+(r.livery?'':' <span class="warn">(no livery yet - the garage database will be updated)</span>');
  const need=!r.livery;$('#closedBox').classList.toggle('hide',!need);$('#closedBox2').classList.toggle('hide',!need);}
-document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));['make','share','view','bak'].forEach(t=>$('#t_'+t).classList.toggle('hide',t!==b.dataset.t));if(b.dataset.t==='bak')loadBak();if(b.dataset.t==='view')loadView()});
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));['make','share','edit','view','bak'].forEach(t=>$('#t_'+t).classList.toggle('hide',t!==b.dataset.t));if(b.dataset.t==='bak')loadBak();if(b.dataset.t==='view')loadView();if(b.dataset.t==='edit')loadEdit()});
 $('#shapes').oninput=e=>$('#shV').textContent=e.target.value;
 $('#btnFolder').onclick=()=>{$('#setupCard').classList.toggle('hide')};
 $('#btnFind').onclick=async()=>{try{showState(await api('setup',{root:$('#rootIn').value.trim(),pe:$('#peIn').value,media:$('#mediaIn').value,profile:$('#profSel').value||''}))}catch(e){showState({ok:false,error:e.message});log(e.message,'bad')}};
@@ -114,7 +116,10 @@ $('#btnApply').onclick=async()=>{const btn=$('#btnApply');setBusy(true,btn,'Writ
 $('#btnExp').onclick=async()=>{if(!sel)return log('pick a garage slot first','warn');try{const r=await api('export',{slot:sel});$('#expOut').textContent=r.path;log('exported to '+r.path,'ok')}catch(e){log('export: '+e.message,'bad')}};
 $('#btnImp').onclick=async()=>{const f=$('#impFile').files[0];if(!sel)return log('pick a garage slot first','warn');if(!f)return log('choose a .fm4livery file','warn');try{const r=await api('import',{slot:sel,file:await b64(f),game_closed:$('#closed2').checked});if(r.needs_confirm)log(r.message,'warn');else{r.messages.forEach(m=>log(m,'ok'));loadGarage()}}catch(e){log('import: '+e.message,'bad')}};
 async function loadBak(){try{const r=await api('backups');const L=$('#bakList');L.innerHTML='';if(!r.files.length)L.textContent='No backups yet.';r.files.forEach(f=>{const d=document.createElement('div');d.style.cssText='display:flex;gap:10px;align-items:center;padding:4px 0;border-bottom:1px solid var(--line)';d.innerHTML='<span style="flex:1;word-break:break-all">'+f+'</span>';const b=document.createElement('button');b.className='sec';b.textContent='Restore';b.onclick=async()=>{try{const x=await api('restore',{file:f});log('restored '+x.restored,'ok');loadGarage()}catch(e){log('restore: '+e.message,'bad')}};d.appendChild(b);L.appendChild(d)})}catch(e){log('backups: '+e.message,'bad')}}
+__EDITOR_JS__
 __VIEWER_JS__
+window.__slot=()=>sel;window.__setSlotTex=tp=>{lastPanels=tp;if(window.V)V.setLivery(tp)};
+async function loadEdit(){if(!sel){$('#eInfo').textContent='Pick a garage slot first';return}try{const tp=await E.load(false);if(tp&&tp!==true){window.__setSlotTex(tp)}}catch(e){$('#eInfo').textContent='';log('editor: '+e.message,'bad')}}
 async function loadView(){if(!V.init())return;if(!sel){$('#vStatus').textContent='Pick a garage slot first';return}
  const key=sel+'|'+$('#zipSel').value;if(viewKey===key)return;$('#vStatus').textContent='loading the car model...';$('#vStatus').className='note';
  try{const m=await api('model',{slot:sel,carzip:$('#zipSel').value});V.setModel(m);viewKey=key;if(lastPanels)V.setLivery(lastPanels)}catch(e){$('#vStatus').textContent='';log('3D view: '+e.message,'bad')}}
@@ -125,5 +130,5 @@ $('#btnPick').onclick=async()=>{const p=await window.pywebview.api.pick_folder()
 (async()=>{try{showState(await api('state'))}catch(e){log(e.message,'bad')}})();
 </script></body></html>'''
 
-from . import gui_viewer as _v
-PAGE = PAGE.replace('__VIEWER_HTML__', _v.HTML).replace('__VIEWER_CSS__', _v.CSS).replace('__VIEWER_JS__', _v.JS)
+from . import gui_viewer as _v, gui_editor as _e
+PAGE = PAGE.replace('__VIEWER_HTML__', _v.HTML).replace('__VIEWER_CSS__', _v.CSS).replace('__VIEWER_JS__', _v.JS).replace('__EDITOR_HTML__', _e.HTML).replace('__EDITOR_CSS__', _e.CSS).replace('__EDITOR_JS__', _e.JS)
