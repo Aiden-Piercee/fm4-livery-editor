@@ -5,9 +5,9 @@ def load(profile_dir, pe):
     xuid = os.path.basename(profile_dir.rstrip('/\\')); raw = open(os.path.join(profile_dir, 'PlayerDatabase'), 'rb').read()
     db, ok = crypto.read_db(raw, pe, xuid); con = sqlite3.connect(':memory:'); con.deserialize(db)
     return dict(con=con, raw=raw, ok=ok, xuid=xuid, path=os.path.join(profile_dir, 'PlayerDatabase'), pe=pe)
-def rows(g, names=None):
-    names = names or {}
-    return [dict(garage_id=i, car_id=c, car=names.get(c, '?'), livery=l or '') for i, c, l in g['con'].execute('select Id,CarId,LiveryFileName from Career_Garage order by Id')]
+def rows(g, names=None, titles=None):
+    names = names or {}; titles = titles or {}
+    return [dict(garage_id=i, car_id=c, car=names.get(c, '?'), title=titles.get(c, ''), livery=l or '') for i, c, l in g['con'].execute('select Id,CarId,LiveryFileName from Career_Garage order by Id')]
 def livery_path(garage_id): return 'Liveries\\%d.liv' % garage_id
 def assign(g, garage_id):
     """point the garage car at Liveries\\<id>.liv (no-op if already set). Returns the path."""

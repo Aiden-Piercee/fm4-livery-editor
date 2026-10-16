@@ -37,7 +37,7 @@ class Api:
         return self.c
     def garage(self):
         c = self.need(); g = app.load_garage(c); zips = app.list_car_zips(c)
-        return dict(signature=g['ok'], rows=[dict(r, zip=bool(c['media'] and r['car'] != '?' and detect.car_zip(c['media'], r['car'])), file=os.path.exists(app.liv_path(c, r['garage_id']))) for r in garage.rows(g, c['names'])], carzips=zips)
+        return dict(signature=g['ok'], rows=[dict(r, zip=bool(c['media'] and r['car'] != '?' and detect.car_zip(c['media'], r['car'])), file=os.path.exists(app.liv_path(c, r['garage_id']))) for r in garage.rows(g, c['names'], c.get('titles'))], carzips=zips)
     def preview(self, d):
         c = self.need(); slot = int(d['slot']); g = app.load_garage(c); row = app.car_row(g, c, slot)
         zp = app.car_zip_for(c, row, d.get('carzip') or None); mk = masks.masks_from_zip(zp)

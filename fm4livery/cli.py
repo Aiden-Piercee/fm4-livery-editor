@@ -12,7 +12,7 @@ def ctx(a):
     except app.AppError as e: sys.exit(str(e))
 def liv_path(c, slot): return os.path.join(c['profile'], 'Liveries', '%d.liv' % slot)
 def car_row(g, c, slot):
-    for r in garage.rows(g, c['names']):
+    for r in garage.rows(g, c['names'], c.get('titles')):
         if r['garage_id'] == slot: return r
     sys.exit('no garage car with Id %d (see: garage)' % slot)
 def write_liv(c, g, slot, plain, assign=True):
@@ -36,7 +36,7 @@ def main(argv=None):
     g = garage.load(c['profile'], c['pe']); print('PlayerDatabase signature', 'OK' if g['ok'] else 'BAD')
     if a.cmd == 'info': return
     if a.cmd == 'garage':
-        for r in garage.rows(g, c['names']): print('%3d  car %5d  %-26s %s' % (r['garage_id'], r['car_id'], r['car'], r['livery'] or '-'))
+        for r in garage.rows(g, c['names'], c.get('titles')): print('%3d  car %5d  %-26s %s' % (r['garage_id'], r['car_id'], r['car'], r['livery'] or '-'))
         return
     if a.slot is None: sys.exit('--slot required')
     row = car_row(g, c, a.slot)

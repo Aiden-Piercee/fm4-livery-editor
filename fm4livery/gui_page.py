@@ -87,21 +87,28 @@ __DECALS_HTML__
 <script>
 const TOKEN="__TOKEN__";let sel=null,rows=[],prevId=null,prevSlot=null,busy=false,lastPanels=null,viewKey=null;
 const $=s=>document.querySelector(s);
+function askYes(msg){return new Promise(res=>{const o=document.createElement('div');o.style.cssText='position:fixed;inset:0;background:#0009;z-index:99;display:flex;align-items:center;justify-content:center';
+ const b=document.createElement('div');b.style.cssText='background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px 20px;max-width:380px';b.innerHTML='<p style="margin:0 0 14px"></p>';b.firstChild.textContent=msg;
+ const y=document.createElement('button');y.textContent='Yes';const n=document.createElement('button');n.className='sec';n.textContent='No';n.style.marginLeft='8px';const done=v=>{o.remove();res(v)};y.onclick=()=>done(true);n.onclick=()=>done(false);
+ b.append(y,n);o.append(b);document.body.append(o);y.focus()})}
 function log(m,c){const e=$('#log');const d=document.createElement('div');d.textContent=m;if(c)d.className=c;e.appendChild(d);e.scrollTop=e.scrollHeight}
 async function api(n,d){const r=await fetch('/api/'+n,{method:'POST',headers:{'X-Token':TOKEN,'Content-Type':'application/json'},body:JSON.stringify(d||{})});const j=await r.json();if(j.error)throw new Error(j.error);return j}
 function setBusy(b,btn,txt){busy=b;if(btn){btn.disabled=b;if(b){btn.dataset.t=btn.innerHTML;btn.innerHTML='<span class="spin"></span>'+txt}else if(btn.dataset.t)btn.innerHTML=btn.dataset.t}}
 function b64(file){return new Promise((res,rej)=>{const f=new FileReader();f.onload=()=>res(f.result.split(',')[1]);f.onerror=rej;f.readAsDataURL(file)})}
 function showState(s){const ch=$('#chipProfile');$('#ver').textContent='v'+(s.version||'');
  if(s.ok){if(s.root&&!$('#rootIn').value)$('#rootIn').value=s.root;$('#peIn').value=s.pe||'';$('#mediaIn').value=s.media||'';ch.textContent='profile '+s.xuid;ch.className='chip ok';$('#setupCard').classList.add('hide');const p=$('#profSel');p.innerHTML='';(s.profiles||[]).forEach(x=>{const o=document.createElement('option');o.value=x;o.textContent=x;if(x===s.profile)o.selected=true;p.appendChild(o)});$('#profPick').classList.toggle('hide',(s.profiles||[]).length<2);
-  $('#garNote').textContent=s.cars_known?'':'Car names unavailable (game database not found) - cars show their ID.';loadGarage()}
+  $('#garNote').textContent=s.cars_known?'':'Car names unavailable (game database or string tables not found) - cars show their ID.';loadGarage()}
  else{ch.textContent='game files not found';ch.className='chip bad';$('#setupCard').classList.remove('hide');$('#advBox').open=true;$('#setupMsg').textContent=(s.error||'')+' - if your files are in different places, fill in the boxes below.';}}
 async function loadGarage(){try{const g=await api('garage');rows=g.rows;const z=$('#zipSel');z.innerHTML='<option value="">automatic</option>';g.carzips.forEach(p=>{const o=document.createElement('option');o.value=p;o.textContent=p.split(/[\\/]/).pop();z.appendChild(o)});
- const tb=$('#garage');tb.innerHTML='';rows.forEach(r=>{const tr=document.createElement('tr');tr.innerHTML='<td>'+r.garage_id+'</td><td>'+(r.car!=='?'?r.car:'car '+r.car_id)+'</td><td><span class="tag '+(r.livery?'has':'')+'">'+(r.livery?(r.file?'livery':'assigned'):'none')+'</span></td>';tr.onclick=()=>pick(r.garage_id);tr.dataset.id=r.garage_id;tb.appendChild(tr)});
+ const tb=$('#garage');tb.innerHTML='';rows.forEach(r=>{const tr=document.createElement('tr');tr.innerHTML='<td>'+r.garage_id+'</td><td title="'+(r.car!=='?'?r.car:'')+' (car id '+r.car_id+')">'+(r.title||(r.car!=='?'?r.car:'car '+r.car_id))+'</td><td><span class="tag '+(r.livery?'has':'')+'">'+(r.livery?(r.file?'livery':'assigned'):'none')+'</span></td>';tr.onclick=()=>pick(r.garage_id);tr.dataset.id=r.garage_id;tb.appendChild(tr)});
  if(!g.signature)log('warning: PlayerDatabase signature did not verify','warn');if(sel)pick(sel)}catch(e){log('garage: '+e.message,'bad')}}
-function pick(id){sel=id;document.querySelectorAll('#garage tr').forEach(t=>t.classList.toggle('sel',t.dataset.id==id));const r=rows.find(x=>x.garage_id==id);if(!r)return;
- $('#selInfo').innerHTML='Slot <b>'+r.garage_id+'</b> - '+(r.car!=='?'?r.car:'car '+r.car_id)+(r.livery?'':' <span class="warn">(no livery yet - the garage database will be updated)</span>');
- const need=!r.livery;$('#closedBox').classList.toggle('hide',!need);$('#closedBox2').classList.toggle('hide',!need);}
+function activeTab(){const b=document.querySelector('.tabs button.on');return b?b.dataset.t:''}
+function refreshActive(){const t=activeTab();if(t==='view')loadView();else if(t==='sheet')loadSheet();else if(t==='edit')loadEdit()}
+function pick(id){const changed=sel!==id;sel=id;if(changed&&prevSlot!==id)lastPanels=null;document.querySelectorAll('#garage tr').forEach(t=>t.classList.toggle('sel',t.dataset.id==id));const r=rows.find(x=>x.garage_id==id);if(!r)return;
+ $('#selInfo').innerHTML='Slot <b>'+r.garage_id+'</b> - '+(r.title||(r.car!=='?'?r.car:'car '+r.car_id))+(r.livery?'':' <span class="warn">(no livery yet - the garage database will be updated)</span>');
+ const need=!r.livery;$('#closedBox').classList.toggle('hide',!need);$('#closedBox2').classList.toggle('hide',!need);if(changed)refreshActive()}
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));['make','share','edit','sheet','view','bak'].forEach(t=>$('#t_'+t).classList.toggle('hide',t!==b.dataset.t));if(b.dataset.t==='bak')loadBak();if(b.dataset.t==='view')loadView();if(b.dataset.t==='sheet')loadSheet();if(b.dataset.t==='edit')loadEdit()});
+$('#zipSel').addEventListener('change',()=>refreshActive());
 $('#shapes').oninput=e=>$('#shV').textContent=e.target.value;
 $('#btnFolder').onclick=()=>{$('#setupCard').classList.toggle('hide')};
 $('#btnFind').onclick=async()=>{try{showState(await api('setup',{root:$('#rootIn').value.trim(),pe:$('#peIn').value,media:$('#mediaIn').value,profile:$('#profSel').value||''}))}catch(e){showState({ok:false,error:e.message});log(e.message,'bad')}};
@@ -128,9 +135,10 @@ __VIEWER_JS__
 __DECALS_JS__
 window.__slot=()=>sel;window.__setSlotTex=tp=>{lastPanels=tp;if(window.V)V.setLivery(tp)};
 async function loadEdit(){if(!sel){$('#eInfo').textContent='Pick a garage slot first';return}try{const tp=await E.load(false);if(tp&&tp!==true){window.__setSlotTex(tp)}}catch(e){$('#eInfo').textContent='';log('editor: '+e.message,'bad')}}
+let viewTok=0;
 async function loadView(){if(!V.init())return;if(!sel){$('#vStatus').textContent='Pick a garage slot first';return}
  const key=sel+'|'+$('#zipSel').value;if(viewKey===key)return;$('#vStatus').textContent='loading the car model...';$('#vStatus').className='note';
- try{const m=await api('model',{slot:sel,carzip:$('#zipSel').value});V.setModel(m);viewKey=key;if(lastPanels)V.setLivery(lastPanels)}catch(e){$('#vStatus').textContent='';log('3D view: '+e.message,'bad')}}
+ try{const my=++viewTok;const m=await api('model',{slot:sel,carzip:$('#zipSel').value});if(my!==viewTok)return;V.setModel(m);viewKey=key;V.setLivery(lastPanels||null)}catch(e){$('#vStatus').textContent='';log('3D view: '+e.message,'bad')}}
 async function loadSheet(){await loadView();D.sheetShow()}
 window.addEventListener('pywebviewready',()=>{if(window.pywebview&&window.pywebview.api&&window.pywebview.api.pick_folder)$('#btnPick').classList.remove('hide');$('#btnPickPe').classList.remove('hide');$('#btnPickMedia').classList.remove('hide')});
 $('#btnPickPe').onclick=async()=>{const p=await window.pywebview.api.pick_file();if(p)$('#peIn').value=p};

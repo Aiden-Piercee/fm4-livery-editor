@@ -93,11 +93,11 @@ function mkPanel(host,o){host.innerHTML='';const wrap=el('div','dwrap'),list=el(
  bt('Duplicate',L=>{const n=mkLayer(Object.assign({},L,{id:nextId++,x:L.x+L.w*.1,y:L.y+L.w*.1,_px:L._px}));o.list().push(n);o.setSel(n.id);o.changed(n,true);o.structure()});
  bt('Up',L=>{const a=o.list(),i=a.indexOf(L);if(i<a.length-1){a.splice(i,1);a.splice(i+1,0,L);o.changed(L,true);o.structure()}});
  bt('Down',L=>{const a=o.list(),i=a.indexOf(L);if(i>0){a.splice(i,1);a.splice(i-1,0,L);o.changed(L,true);o.structure()}});
- bt('Delete',L=>{const a=o.list();a.splice(a.indexOf(L),1);o.setSel(null);o.changed(null,true);o.structure()});
+ bt('Delete',L=>{const a=o.list();const i=a.indexOf(L);a.splice(i,1);o.setSel(a.length?a[Math.min(i,a.length-1)].id:null);o.changed(null,true);o.structure()});
  sS.r.oninput=()=>{const L=o.get();if(!L)return;L.w=lim[0]*Math.exp(lg*sS.r.value/1000);o.changed(L,false);o.debounce()};
  sR.r.oninput=()=>{const L=o.get();if(!L)return;L.rot=+sR.r.value;o.changed(L,false);o.debounce()};
  sO.r.oninput=()=>{const L=o.get();if(!L)return;L.op=sO.r.value/100;o.changed(L,false);o.debounce()};
- function R(){const a=o.list();list.innerHTML='';if(!a.length){list.append(Object.assign(el('div','note','Nothing placed yet - drop an image or SVG, or use the Add button.'),{}))}
+ function R(){const a=o.shown?o.shown():o.list();list.innerHTML='';if(!a.length){list.append(Object.assign(el('div','note','Nothing placed yet - drop an image or SVG, or use the Add button.'),{}))}
   a.slice().reverse().forEach(L=>{const r=el('div','drow'+(L.id===o.sel()?' sel':''));const im=document.createElement('img');im.src=L.canvas.toDataURL();r.append(im,Object.assign(el('span','nm',L.name+(L.view?' ('+L.view+')':''))));r.onclick=()=>{o.setSel(L.id);o.changed(L,false);R()};list.append(r)});
   const L=o.get();[sS.r,sR.r,sO.r].forEach(r=>r.disabled=!L);if(L){sS.r.value=clamp(Math.log(L.w/lim[0])/lg*1000,0,1000);sR.r.value=L.rot;sO.r.value=Math.round(L.op*100);sS.b.textContent=(o.fmt?o.fmt(L.w):L.w.toFixed(3));sR.b.textContent=L.rot.toFixed(1)+'°';sO.b.textContent=Math.round(L.op*100)+'%'}}
  return{R}}
@@ -190,7 +190,7 @@ function mkBar(){const bar=$('#dLockBar');bar.innerHTML='';bar.append(el('span',
 function syncBar(){document.querySelectorAll('#dLockBar [data-lock]').forEach(b=>b.classList.toggle('on',V.st.lock===b.dataset.lock))}
 function mk3(){const host=$('#dBox3');host.innerHTML='';const top=el('div','note');top.style.margin='6px 0';top.textContent='Decals are placed flat on the locked view and baked onto every visible panel of the car texture through its UV map (hidden-surface aware). Click a picture to select; drag to move; corner = size; knob = rotate.';host.append(top);
  const ph=el('div');host.append(ph);
- panel3=mkPanel(ph,{list:()=>A.dec3.filter(l=>!V.view2d()||l.view===V.view2d().name),sel:()=>A.sel3,setSel:id=>{A.sel3=id},get:()=>A.dec3.find(l=>l.id===A.sel3),lim:[.02,6],fmt:w=>w.toFixed(2)+' m wide',
+ panel3=mkPanel(ph,{list:()=>A.dec3,shown:()=>A.dec3.filter(l=>!V.view2d()||l.view===V.view2d().name),sel:()=>A.sel3,setSel:id=>{A.sel3=id},get:()=>A.dec3.find(l=>l.id===A.sel3),lim:[.02,6],fmt:w=>w.toFixed(2)+' m wide',
   changed:(L,commit)=>{A.pending3=true;if(commit)debounceBake()},debounce:debounceBake,structure:()=>{A.ver3++;panel3.R();refresh()}});
  s3=Surface({lim:[.02,6],ctx:ctx3,getSel:()=>A.sel3,get:()=>A.dec3.find(l=>l.id===A.sel3),setSel:id=>{A.sel3=id},changed:(L,commit)=>{A.pending3=true;if(commit){debounceBake()}panel3.R()}});
  const row=el('div');row.style.cssText='margin:8px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center';

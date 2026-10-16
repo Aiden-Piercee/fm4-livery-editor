@@ -12,12 +12,14 @@ def context(root=None, pe=None, profile=None, media=None):
     if not profs: raise AppError('no profile with a PlayerDatabase found under that folder')
     if len(profs) > 1 and not profile: raise AppError('several profiles found: ' + ' | '.join(profs))
     names = detect.car_table(media, [root]) if media else {}
+    try: titles = detect.car_titles(media, [root]) if media else {}
+    except Exception: titles = {}
     return dict(root=root, pe=open(pe_path, 'rb').read(), pe_path=pe_path, media=media, profile=profs[0], profiles=profs,
-                xuid=os.path.basename(profs[0].rstrip('/\\')), names=names)
+                xuid=os.path.basename(profs[0].rstrip('/\\')), names=names, titles=titles)
 def liv_path(c, slot): return os.path.join(c['profile'], 'Liveries', '%d.liv' % slot)
 def load_garage(c): return garage.load(c['profile'], c['pe'])
 def car_row(g, c, slot):
-    for r in garage.rows(g, c['names']):
+    for r in garage.rows(g, c['names'], c.get('titles')):
         if r['garage_id'] == slot: return r
     raise AppError('no garage car with Id %d' % slot)
 def car_zip_for(c, row, carzip=None):

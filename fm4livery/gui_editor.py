@@ -228,7 +228,7 @@ let lastLoad=null;
 const load=force=>{const p=loadSlot(force);lastLoad=p.catch(()=>{});return p};
 async function texMap(names){const tp={};for(const n of names){if(data.panels[n].layers.length){const c=await renderTex(n,1.5);tp[n]={tex:c.toDataURL('image/png').split(',')[1]}}}return tp}
 async function loadSlot(force){if(!sel_slot())return false;const k=sel_slot()+'|'+$('#zipSel').value;if(!force&&k===key)return true;
- if(dirty&&!window.confirm('Discard the unsaved layer changes?'))return true;
+ if(dirty&&!(await askYes('Discard the unsaved layer changes?')))return true;
  $('#eInfo').textContent='reading the livery...';data=await api('slot',{slot:sel_slot(),carzip:$('#zipSel').value});shapes=Object.assign(shapes,data.shapes);sils={};key=k;sel=-1;vDisarm();
  dirty=false;U=[];R=[];cur=snap();saved=cur;
  const names=Object.keys(data.panels);const ps=$('#ePanel');const old=ps.value;ps.innerHTML='';names.forEach(n=>{const o=document.createElement('option');o.value=n;o.textContent=n+' ('+data.panels[n].layers.length+')';ps.appendChild(o)});
