@@ -135,8 +135,9 @@ def parse(data):
             mv = r.ver((1, 2, 3), 'Mesh3')
             if mv >= 2:
                 r.raw(1)
+            blk = None
             if mv >= 3:
-                r.raw(64)
+                blk = r.raw(64)
             v2 = r.ver((1, 2), 'Mesh2')
             mname = r.string()
             lod, prim, mat = struct.unpack('>III', r.raw(12))
@@ -145,15 +146,16 @@ def parse(data):
             idx = _ib(r)
             if v2 >= 2:
                 r.raw(4)
-            meshes.append(dict(name=mname, lod=lod, prim=prim, mat=mat, unpack=unpack, index=idx))
+            meshes.append(dict(blk=blk, name=mname, lod=lod, prim=prim, mat=mat, unpack=unpack, index=idx))
+        cnt0, size0, vb0 = (0, 0, b'')
         if v > 1:
-            _vb(r, 'VB_LOD0')
+            cnt0, size0, vb0 = _vb(r, 'VB_LOD0')
         if v >= 5:
             r.ver((1,), 'Morph')
             r.raw(1)
             _vb(r, 'M')
             _vb(r, 'M0')
-        subs.append(dict(hdr=bytes(hdr), name=name, count=cnt, stride=size, vb=vb, meshes=meshes))
+        subs.append(dict(hdr=bytes(hdr), name=name, count=cnt, stride=size, vb=vb, count0=cnt0, stride0=size0, vb0=vb0, meshes=meshes))
     return subs
 
 
@@ -218,6 +220,18 @@ def _uv0(sub):
     (verified by rendering the Falcon V8 Supercar's baked livery onto its body)."""
     w = np.frombuffer(sub['vb'], dtype='>u2').reshape(-1, 16).astype(np.float32)
     return w[:, 4:6] / 65535.0
+
+
+def _uv_mesh(uv0, m):
+    """Per-mesh UV decompression: the 64-byte block of each mesh starts with (u0, du, v0, dv) = the shader's
+    uv1CompressionFactors; vertex words are normalised to 0..1 across that window."""
+    b = m.get('blk')
+    if not b:
+        return uv0
+    f = struct.unpack('>4f', b[:16])
+    if not all(np.isfinite(f)) or f[1] <= 0 or f[3] <= 0:
+        return uv0
+    return np.stack([f[0] + uv0[:, 0] * f[1], f[2] + uv0[:, 1] * f[3]], 1)
 
 
 def _uv_tri_mask(pos, uv, tris):
@@ -319,13 +333,8 @@ def build_model(carbin_bytes, phys_xml=b''):
                         t2 = tris[:, ::-1]
                     add('wheel', m['name'], cat, p, n2, t2, False)
             else:
-                mask = _uv_tri_mask(pos, uv0, tris) if cat in ('paint', 'trim', 'chrome') else None
                 hid = s['name'] in HIDDEN_SUBS
-                if mask is None or not mask.any():
-                    add(s['name'], m['name'], cat, pos, nrm, tris, hid, uv0, False)
-                else:
-                    add(s['name'], m['name'], cat, pos, nrm, tris[mask], hid, uv0, True)
-                    if (~mask).any(): add(s['name'], m['name'], cat, pos, nrm, tris[~mask], hid, uv0, False)
+                add(s['name'], m['name'], cat, pos, nrm, tris, hid, _uv_mesh(uv0, m), cat in ('paint', 'trim', 'chrome'))
     pos = np.concatenate(P)
     b64 = lambda a: base64.b64encode(np.ascontiguousarray(a).tobytes()).decode()
     return dict(parts=parts, pos=b64(pos), nrm=b64(np.concatenate(N)), uv=b64(np.concatenate(UV)), idx=b64(np.concatenate(I)),
