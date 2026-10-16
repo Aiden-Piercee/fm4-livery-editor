@@ -2,7 +2,7 @@
 import base64, io, json, os, re, secrets, threading, uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from PIL import Image
-from . import app, crypto, design, detect, garage, masks, share, vinyls, __version__
+from . import app, crypto, design, detect, garage, masks, packs, share, vinyls, __version__
 from .gui_page import PAGE
 class Api:
     def __init__(self, root=None):
@@ -54,6 +54,26 @@ class Api:
         c = self.need(); slot = int(d['slot']); g = app.load_garage(c); row = app.car_row(g, c, slot)
         zp = app.car_zip_for(c, row, d.get('carzip') or None)
         return app.bake_atlas(zp, base64.b64decode(d['overlay']), os.path.join(self.exports, 'textures'), bool(d.get('zip', True)))
+    def _pk(self, c):
+        pr = packs.find_pack_root(c['root'])
+        if not pr: raise app.AppError('no 4D530910\\00000002 package folder found under the chosen folder')
+        return pr, os.path.join(c['root'], 'fm4livery_backups')
+    def install(self, d):
+        if not (d.get('confirm') and d.get('gameClosed')): raise app.AppError('installing needs confirmation and the game closed')
+        c = self.need(); slot = int(d['slot']); g = app.load_garage(c); row = app.car_row(g, c, slot)
+        zp = app.car_zip_for(c, row, d.get('carzip') or None); pr, bk = self._pk(c); car = os.path.splitext(os.path.basename(zp))[0]
+        r = app.bake_atlas(zp, base64.b64decode(d['overlay']), os.path.join(self.exports, 'textures'), False)
+        tex = {os.path.basename(f): open(f, 'rb').read() for f in r['files']}
+        orig = packs.save_originals(car, zp, set(tex), bk)
+        b = packs.build(os.path.join(self.exports, 'packs'), car, tex, pr, originals=orig)
+        i = packs.install(pr, b, bk); return dict(car=car, folder=b['folder'], dest=i['dest'], parked=i['parked'], backups=bk, files=sorted(tex))
+    def uninstall(self, d):
+        c = self.need(); pr, bk = self._pk(c); return dict(moved=packs.uninstall(pr, d['folder'], bk), backups=bk)
+    def packs_list(self, d=None):
+        c = self.need(); pr, bk = self._pk(c); car = None; d = d or {}
+        if d.get('slot') is not None:
+            g = app.load_garage(c); row = app.car_row(g, c, int(d['slot'])); car = os.path.splitext(os.path.basename(app.car_zip_for(c, row, d.get('carzip') or None)))[0]
+        return dict(root=pr, car=car, packs=packs.installed(pr))
     def savefile(self, d):
         c = self.need(); slot = int(d['slot']); g = app.load_garage(c); row = app.car_row(g, c, slot)
         zp = app.car_zip_for(c, row, d.get('carzip') or None); dd = os.path.join(self.exports, 'templates', os.path.splitext(os.path.basename(zp))[0]); os.makedirs(dd, exist_ok=True)
@@ -129,7 +149,7 @@ class Api:
     def backups(self): c = self.need(); return dict(files=[os.path.relpath(p, c['profile']) for p in app.backups(c)])
     def restore(self, d): c = self.need(); return dict(restored=os.path.relpath(app.restore(c, os.path.join(c['profile'], d['file'])), c['profile']))
 ROUTES = {'setup': lambda a, d: a.setup(d.get('root') or '', d.get('profile'), pe=d.get('pe'), media=d.get('media')), 'state': lambda a, d: a.state(), 'garage': lambda a, d: a.garage(), 'preview': lambda a, d: a.preview(d), 'model': lambda a, d: a.model(d), 'slot': lambda a, d: a.slot(d), 'savelayers': lambda a, d: a.savelayers(d), 'vinylcat': lambda a, d: a.vinylcat(d), 'fitlayers': lambda a, d: a.fitlayers(d), 'vinylshapes': lambda a, d: a.vinylshapes(d),
-          'apply': lambda a, d: a.apply(d), 'bake': lambda a, d: a.bake(d), 'savefile': lambda a, d: a.savefile(d), 'decalfit': lambda a, d: a.decalfit(d), 'export': lambda a, d: a.export(d), 'import': lambda a, d: a.import_(d), 'backups': lambda a, d: a.backups(), 'restore': lambda a, d: a.restore(d)}
+          'apply': lambda a, d: a.apply(d), 'bake': lambda a, d: a.bake(d), 'savefile': lambda a, d: a.savefile(d), 'install': lambda a, d: a.install(d), 'uninstall': lambda a, d: a.uninstall(d), 'packs': lambda a, d: a.packs_list(d), 'decalfit': lambda a, d: a.decalfit(d), 'export': lambda a, d: a.export(d), 'import': lambda a, d: a.import_(d), 'backups': lambda a, d: a.backups(), 'restore': lambda a, d: a.restore(d)}
 def make_server(root=None, port=0):
     api = Api(root); token = secrets.token_urlsafe(16); page = PAGE.replace('__TOKEN__', token).encode('utf-8')
     class H(BaseHTTPRequestHandler):

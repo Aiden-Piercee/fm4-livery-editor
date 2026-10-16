@@ -25,6 +25,8 @@ HTML = r'''
        <button class="sec on" id="shUV">UV outlines</button><button class="sec" id="shAlpha">Show alpha</button><button class="sec" id="shReset">Reset zoom</button>
        <span class="sep"></span>
        <button id="shExport" title="Builds the edited .xds files and a copy of the car zip in the output folder. Nothing is installed.">Build texture files</button>
+       <button id="shInstall" title="Builds a texture override pack and installs it into the game's package folder. The original car zip is never changed. Game must be closed.">Install to game</button>
+       <button class="sec" id="shRestore" title="Moves this car's texture pack out of the game (kept in the backups folder)">Restore original</button>
        <button class="sec" id="shTemplate">Save atlas + UV template</button>
        <span class="note" id="shStatus" style="margin-left:auto"></span>
      </div>
@@ -228,6 +230,17 @@ async function exportXds(){if(!sel)return log('pick a garage slot first','warn')
   log('texture files written to '+r.dir,'ok');r.files.forEach(f=>log('  '+f));if(r.zip)log('  car zip copy: '+r.zip+' (stored/uncompressed entries - not installed anywhere)');log('round-trip check: mean error '+r.err.toFixed(2)+' (levels of 255)');$('#shStatus').textContent='built - '+r.dir}
  catch(e){log('build: '+e.message,'bad')}finally{setBusy(false,btn)}}
 $('#shExport').onclick=exportXds;
+$('#shInstall').onclick=async()=>{if(!sel)return log('pick a garage slot first','warn');if(!A.hasAtlas)return log('this car has no baked-livery texture','warn');
+ if(!A.dec3.length&&!A.sheet.length)return log('nothing placed yet','warn');
+ if(!await askYes('Is the game fully closed? Installing adds a texture pack to the game folder (the original car zip is not changed; Restore undoes it).'))return;
+ const btn=$('#shInstall');setBusy(true,btn,'Installing…');
+ try{const c=compose(2048);const r=await api('install',{slot:sel,carzip:$('#zipSel').value,overlay:await b64(await blobOf(c.overlay)),confirm:true,gameClosed:true});
+  log('installed texture pack for '+r.car+' -> '+r.dest,'ok');r.files.forEach(f=>log('  '+f));r.parked.forEach(f=>log('  previous copy kept at '+f));log('pristine originals + backups: '+r.backups+' . Start the game and look at the car. Untested in-game: use Restore original if anything looks wrong.');$('#shStatus').textContent='installed - '+r.car}
+ catch(e){log('install: '+e.message,'bad')}finally{setBusy(false,btn)}};
+$('#shRestore').onclick=async()=>{try{const l=await api('packs',{slot:sel,carzip:$('#zipSel').value});const car=l.car;const m=l.packs.filter(p=>p.car===car);
+ if(!m.length)return log('no installed texture pack for '+car,'warn');if(!await askYes('Is the game closed? Move the texture pack for '+car+' out of the game?'))return;
+ for(const p of m){const r=await api('uninstall',{folder:p.folder});log('moved out: '+r.moved.join(' , '),'ok')}$('#shStatus').textContent='restored '+car}
+ catch(e){log('restore: '+e.message,'bad')}};
 $('#shTemplate').onclick=async()=>{if(!sel||!A.hasAtlas)return log('open a car with a baked livery texture first','warn');try{const S=2048;const w=wire(S,'rgba(0,255,255,0.9)',1.2),base=cvs(S),g=base.getContext('2d');g.drawImage(A.base,0,0,S,S);const al=cvs(S);al.getContext('2d').drawImage(A.baseA,0,0,S,S);
   const mix=cvs(S),gm=mix.getContext('2d');gm.drawImage(base,0,0);gm.drawImage(w,0,0);let dir='';
   for(const [n,c] of [['atlas_colour.png',base],['atlas_alpha.png',al],['uv_outlines.png',w],['atlas_with_uv.png',mix]]){const r=await api('savefile',{slot:sel,carzip:$('#zipSel').value,name:n,data:await b64(await blobOf(c))});dir=r.dir}
