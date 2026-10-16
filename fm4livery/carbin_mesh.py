@@ -220,6 +220,24 @@ def _uv0(sub):
     return w[:, 4:6] / 65535.0
 
 
+def _uv_tri_mask(pos, uv, tris):
+    """Does this mesh's UV set 1 address the car's texture atlas? Returns None if not, else a per-triangle bool mask of the
+    triangles whose texel density agrees with the mesh (the rest straddle islands and would paint scrambled decals).
+    Some meshes (skirts, trunk lip, mirror shell, chrome trim) hold tiling coordinates instead: density several times too high."""
+    if not len(tris): return None
+    p = pos[tris]; u = uv[tris]
+    wa = 0.5 * np.linalg.norm(np.cross(p[:, 1] - p[:, 0], p[:, 2] - p[:, 0]), axis=1)
+    ua = 0.5 * np.abs((u[:, 1, 0] - u[:, 0, 0]) * (u[:, 2, 1] - u[:, 0, 1]) - (u[:, 2, 0] - u[:, 0, 0]) * (u[:, 1, 1] - u[:, 0, 1]))
+    if float(np.ptp(uv[np.unique(tris)], axis=0).max()) < 0.04: return np.ones(len(tris), bool)   # a flat swatch
+    ok = (wa > 1e-7) & (ua > 1e-12)
+    if ok.sum() < 20: return None
+    lr = np.log(np.sqrt(ua[ok] / wa[ok])); med = float(np.median(lr))
+    if np.exp(med) > 0.8 or (np.abs(lr - med) > np.log(2)).mean() > 0.3: return None
+    ratio = np.zeros(len(tris)); ratio[ok] = np.log(np.sqrt(ua[ok] / wa[ok])) - med
+    edge = np.maximum.reduce([np.abs(u[:, 0] - u[:, 1]).max(1), np.abs(u[:, 1] - u[:, 2]).max(1), np.abs(u[:, 0] - u[:, 2]).max(1)])
+    return ok & (np.abs(ratio) <= np.log(3)) & (edge < 0.25)
+
+
 def _strip_to_tris(idx):
     out = []
     cur = []
@@ -244,7 +262,7 @@ def _wheel_layout(phys_xml):
         ft = float(m.get('FrontTrackOuter'))
         rt = float(m.get('RearTrackOuter'))
         b = root.find('.//BottomCenterWheelbasePos')      # wheelbase centre is not always at the model origin
-        if b is not None: zc = float(b.get('z'))
+        if b is not None: zc = -float(b.get('z'))
     except Exception:
         pass
     return wb, ft, rt, zc
@@ -258,7 +276,7 @@ def build_model(carbin_bytes, phys_xml=b''):
     ni = 0
     wb, ft, rt, zc = _wheel_layout(phys_xml)
 
-    def add(name, mat, cat, pos, nrm, tris, hidden, uv=None):
+    def add(name, mat, cat, pos, nrm, tris, hidden, uv=None, atlas=False):
         nonlocal nv, ni
         used = np.unique(tris)
         remap = np.zeros(int(used.max()) + 1, dtype=np.uint32)
@@ -267,7 +285,7 @@ def build_model(carbin_bytes, phys_xml=b''):
         N.append(nrm[used].astype(np.float32))
         UV.append((uv[used] if uv is not None else np.zeros((len(used), 2))).astype(np.float32))
         I.append((remap[tris] + nv).astype(np.uint32).ravel())
-        parts.append(dict(name=name, mat=mat, cat=cat, hidden=hidden, i0=ni, n=int(tris.size), atlas=uv is not None and cat in ('paint', 'trim', 'chrome')))
+        parts.append(dict(name=name, mat=mat, cat=cat, hidden=hidden, i0=ni, n=int(tris.size), atlas=bool(atlas)))
         nv += len(used)
         ni += int(tris.size)
 
@@ -301,7 +319,13 @@ def build_model(carbin_bytes, phys_xml=b''):
                         t2 = tris[:, ::-1]
                     add('wheel', m['name'], cat, p, n2, t2, False)
             else:
-                add(s['name'], m['name'], cat, pos, nrm, tris, s['name'] in HIDDEN_SUBS, uv0)
+                mask = _uv_tri_mask(pos, uv0, tris) if cat in ('paint', 'trim', 'chrome') else None
+                hid = s['name'] in HIDDEN_SUBS
+                if mask is None or not mask.any():
+                    add(s['name'], m['name'], cat, pos, nrm, tris, hid, uv0, False)
+                else:
+                    add(s['name'], m['name'], cat, pos, nrm, tris[mask], hid, uv0, True)
+                    if (~mask).any(): add(s['name'], m['name'], cat, pos, nrm, tris[~mask], hid, uv0, False)
     pos = np.concatenate(P)
     b64 = lambda a: base64.b64encode(np.ascontiguousarray(a).tobytes()).decode()
     return dict(parts=parts, pos=b64(pos), nrm=b64(np.concatenate(N)), uv=b64(np.concatenate(UV)), idx=b64(np.concatenate(I)),
