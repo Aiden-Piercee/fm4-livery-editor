@@ -304,7 +304,7 @@ def build_model(carbin_bytes, phys_xml=b''):
         ni += int(tris.size)
 
     for s in subs:
-        if s['name'] in SKIP_SUBS or 'frame' in s['name'].lower():
+        if s['name'] in SKIP_SUBS or 'frame' in s['name'].lower() or s['name'] == 'wheel':   # wheels not rendered (placement differed per car)
             continue
         meshes = [m for m in s['meshes'] if m['lod'] == 1]
         if not meshes:
