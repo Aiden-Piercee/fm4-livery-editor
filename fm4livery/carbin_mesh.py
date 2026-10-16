@@ -213,6 +213,13 @@ def _positions(sub):
     return pos, nrm
 
 
+def _uv0(sub):
+    """Per-vertex UV set 1 = the car's own texture atlas (nodamage.xds): vertex words 4,5 as u16 / 65535
+    (verified by rendering the Falcon V8 Supercar's baked livery onto its body)."""
+    w = np.frombuffer(sub['vb'], dtype='>u2').reshape(-1, 16).astype(np.float32)
+    return w[:, 4:6] / 65535.0
+
+
 def _strip_to_tris(idx):
     out = []
     cur = []
@@ -246,20 +253,21 @@ def _wheel_layout(phys_xml):
 def build_model(carbin_bytes, phys_xml=b''):
     """-> dict(parts=[...], pos=b64 f32, nrm=b64 f32, idx=b64 u32, bbox=[min,max])"""
     subs = parse(carbin_bytes)
-    P, N, I, parts = [], [], [], []
+    P, N, UV, I, parts = [], [], [], [], []
     nv = 0
     ni = 0
     wb, ft, rt, zc = _wheel_layout(phys_xml)
 
-    def add(name, mat, cat, pos, nrm, tris, hidden):
+    def add(name, mat, cat, pos, nrm, tris, hidden, uv=None):
         nonlocal nv, ni
         used = np.unique(tris)
         remap = np.zeros(int(used.max()) + 1, dtype=np.uint32)
         remap[used] = np.arange(len(used), dtype=np.uint32)
         P.append(pos[used].astype(np.float32))
         N.append(nrm[used].astype(np.float32))
+        UV.append((uv[used] if uv is not None else np.zeros((len(used), 2))).astype(np.float32))
         I.append((remap[tris] + nv).astype(np.uint32).ravel())
-        parts.append(dict(name=name, mat=mat, cat=cat, hidden=hidden, i0=ni, n=int(tris.size)))
+        parts.append(dict(name=name, mat=mat, cat=cat, hidden=hidden, i0=ni, n=int(tris.size), atlas=uv is not None and cat in ('paint', 'trim', 'chrome')))
         nv += len(used)
         ni += int(tris.size)
 
@@ -270,6 +278,7 @@ def build_model(carbin_bytes, phys_xml=b''):
         if not meshes:
             continue
         pos, nrm = _positions(s)
+        uv0 = _uv0(s)
         for m in meshes:
             tris = _strip_to_tris(m['index']) if m['prim'] == 6 else m['index'][:len(m['index']) // 3 * 3].reshape(-1, 3)
             if not len(tris):
@@ -292,10 +301,10 @@ def build_model(carbin_bytes, phys_xml=b''):
                         t2 = tris[:, ::-1]
                     add('wheel', m['name'], cat, p, n2, t2, False)
             else:
-                add(s['name'], m['name'], cat, pos, nrm, tris, s['name'] in HIDDEN_SUBS)
+                add(s['name'], m['name'], cat, pos, nrm, tris, s['name'] in HIDDEN_SUBS, uv0)
     pos = np.concatenate(P)
     b64 = lambda a: base64.b64encode(np.ascontiguousarray(a).tobytes()).decode()
-    return dict(parts=parts, pos=b64(pos), nrm=b64(np.concatenate(N)), idx=b64(np.concatenate(I)),
+    return dict(parts=parts, pos=b64(pos), nrm=b64(np.concatenate(N)), uv=b64(np.concatenate(UV)), idx=b64(np.concatenate(I)),
                 bbox=[pos.min(0).tolist(), pos.max(0).tolist()], colors=CAT_COLOR,
                 wheelbase=wb), pos, np.concatenate(I)
 

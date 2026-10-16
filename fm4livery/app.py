@@ -1,5 +1,5 @@
 """Shared logic for the CLI and the GUI: find the game/profile, fit an image onto panels, build and write designs."""
-import io, os, shutil, time
+import base64, io, os, shutil, time
 import numpy as np
 from PIL import Image
 from . import crypto, design, detect, garage, masks, share
@@ -73,10 +73,21 @@ def model_for_zip(zip_path):
     if not cands: raise AppError('no body model in that car zip')
     body = min(cands, key=len)
     want = {body, 'physics/maxdata.xml'}
-    f = fzip.read_files(zip_path, lambda n: n in want or n.startswith('liverymasks/'))
+    atl = [n for n in ('nodamage_lod0.xds', 'nodamage.xds') if n in set(fzip.names(zip_path))]
+    f = fzip.read_files(zip_path, lambda n: n in want or n.startswith('liverymasks/') or (atl and n == atl[0]))
     mk = masks.load_masks(f)
     model, pos, idx = carbin_mesh.build_model(f[body], f.get('physics/maxdata.xml', b''))
     model['proj'] = carbin_mesh.fit_projection(pos, idx, model['parts'], mk)
+    if atl and atl[0] in f:
+        try:
+            from . import xds
+            im = xds.decode(f[atl[0]])
+            rgb, alpha = im.convert('RGB'), im.getchannel('A')      # resize separately: RGBA resampling premultiplies and wipes RGB under alpha 0
+            if im.width > 1024: rgb, alpha = rgb.resize((1024, 1024), Image.LANCZOS), alpha.resize((1024, 1024), Image.LANCZOS)
+            enc = lambda i: base64.b64encode((lambda b: (i.save(b, 'PNG'), b.getvalue())[1])(io.BytesIO())).decode()
+            model['atlas'] = enc(rgb); model['atlas_a'] = enc(alpha)   # separate: browsers drop RGB under alpha 0
+        except Exception as e:
+            model['atlas_error'] = str(e)
     _MODEL_CACHE.clear(); _MODEL_CACHE[key] = model; return model
 def write_liv(c, g, slot, plain, assign=True):
     """returns list of human-readable lines"""

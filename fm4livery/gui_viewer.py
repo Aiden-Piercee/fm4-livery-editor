@@ -27,7 +27,7 @@ HTML = r'''
        <span class="sep"></span>
        <button class="sec on" data-m="shaded">Shaded</button><button class="sec" data-m="edges">Shaded + edges</button><button class="sec" data-m="wire">Wireframe</button>
        <span class="sep"></span>
-       <button class="sec on" id="vGrid">Grid</button><button class="sec on" id="vLiv">Livery</button><button class="sec" id="vFit">Fit view</button>
+       <button class="sec on" id="vGrid">Grid</button><button class="sec on" id="vLiv">Livery</button><select id="vTex" title="The car's own painted texture (UV set 1 of the car model)" style="width:auto;margin:0;padding:4px 6px;font-size:12px"><option value="0">Car texture: off</option><option value="1" selected>Car texture: baked colour</option><option value="2">Car texture: paint + decals</option></select><button class="sec" id="vFit">Fit view</button>
        <span class="note" id="vStatus" style="margin-left:auto"></span>
      </div>
      <div class="vwrap" id="vWrap"><canvas id="vGL"></canvas><canvas id="vOverlay"></canvas>
@@ -58,19 +58,20 @@ const m4={
   return new Float32Array([x[0],y[0],z[0],0,x[1],y[1],z[1],0,x[2],y[2],z[2],0,-(x[0]*e[0]+x[1]*e[1]+x[2]*e[2]),-(y[0]*e[0]+y[1]*e[1]+y[2]*e[2]),-(z[0]*e[0]+z[1]*e[1]+z[2]*e[2]),1])}
 };
 const cv=$('#vGL'),ov=$('#vOverlay');let gl=null,ok=false;
-let vaoL=null,axB=null,model=null,parts=[],bufs=null,progM=null,progL=null,texs={},texOn=[0,0,0,0,0],proj=null,cal={},slotKey=null;
+let atlasTex=null,atlasTexA=null,atlasOn=false;let vaoL=null,axB=null,model=null,parts=[],bufs=null,progM=null,progL=null,texs={},texOn=[0,0,0,0,0],proj=null,cal={},slotKey=null;
 const PAN=['left','right','front','rear','roof'];
-const st={az:3.9,el:0.35,dist:6,tx:0,ty:0.7,tz:0,ortho:false,mode:'shaded',grid:true,liv:true,paint:[0.81,0.83,0.855]};
+const st={atl:1,az:3.9,el:0.35,dist:6,tx:0,ty:0.7,tz:0,ortho:false,mode:'shaded',grid:true,liv:true,paint:[0.81,0.83,0.855]};
 const VS=`#version 300 es
-layout(location=0) in vec3 aP;layout(location=1) in vec3 aN;uniform mat4 uVP;out vec3 vP;out vec3 vN;
-void main(){vP=aP;vN=aN;gl_Position=uVP*vec4(aP,1.0);}`;
+layout(location=0) in vec3 aP;layout(location=1) in vec3 aN;layout(location=2) in vec2 aUV;uniform mat4 uVP;out vec3 vP;out vec3 vN;out vec2 vUV;
+void main(){vP=aP;vN=aN;vUV=aUV;gl_Position=uVP*vec4(aP,1.0);}`;
 const FS=`#version 300 es
-precision highp float;in vec3 vP;in vec3 vN;uniform vec4 uCol;uniform float uPaint;uniform float uLiv;uniform vec3 uEye;uniform float uFlat;
+precision highp float;in vec3 vP;in vec3 vN;in vec2 vUV;uniform sampler2D uAtlas;uniform sampler2D uAtlasA;uniform float uAtl;uniform vec4 uCol;uniform float uPaint;uniform float uLiv;uniform vec3 uEye;uniform float uFlat;
 uniform sampler2D uT0;uniform sampler2D uT1;uniform sampler2D uT2;uniform sampler2D uT3;uniform sampler2D uT4;
 uniform vec4 uHas;uniform float uHas4;uniform vec3 uAX[5];uniform vec3 uAY[5];uniform vec4 uPR[5];uniform vec4 uBX[5];out vec4 o;
 vec4 smp(int i,vec2 uv){if(i==0)return texture(uT0,uv);if(i==1)return texture(uT1,uv);if(i==2)return texture(uT2,uv);if(i==3)return texture(uT3,uv);return texture(uT4,uv);}
 void main(){vec3 n=normalize(vN);vec3 V=normalize(uEye-vP);if(dot(n,V)<0.0&&uCol.a>0.99)n=-n;
  vec3 base=uCol.rgb;float a=uCol.a;
+ if(uFlat<0.5&&uAtl>0.5){vec3 tx=texture(uAtlas,vUV).rgb;float ta=texture(uAtlasA,vUV).r;base=(uAtl<1.5)?tx:mix(base,tx,ta);}
  if(uFlat<0.5&&uPaint>0.5&&uLiv>0.5){
   float d[5];d[0]=-n.x;d[1]=n.x;d[2]=-n.z;d[3]=n.z;d[4]=n.y*1.15;int b=0;float bd=d[0];for(int i=1;i<5;i++){if(d[i]>bd){bd=d[i];b=i;}}
   bool has=(b==0&&uHas.x>0.5)||(b==1&&uHas.y>0.5)||(b==2&&uHas.z>0.5)||(b==3&&uHas.w>0.5)||(b==4&&uHas4>0.5);
@@ -95,16 +96,17 @@ function init(){if(gl||ok===null)return ok;try{gl=cv.getContext('webgl2',{antial
 function f32(b){const s=atob(b);const u=new Uint8Array(s.length);for(let i=0;i<s.length;i++)u[i]=s.charCodeAt(i);return u.buffer}
 function setModel(m){model=m;parts=m.parts;proj=m.proj||{};
  const pos=new Float32Array(f32(m.pos)),nrm=new Float32Array(f32(m.nrm)),idx=new Uint32Array(f32(m.idx));
- if(bufs){gl.deleteBuffer(bufs.p);gl.deleteBuffer(bufs.n);gl.deleteBuffer(bufs.i);gl.deleteBuffer(bufs.e);gl.deleteVertexArray(bufs.vao)}
+ if(bufs){gl.deleteBuffer(bufs.p);gl.deleteBuffer(bufs.n);gl.deleteBuffer(bufs.i);gl.deleteBuffer(bufs.e);gl.deleteBuffer(bufs.u);gl.deleteVertexArray(bufs.vao)}
  const vao=gl.createVertexArray();gl.bindVertexArray(vao);
  const p=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,p);gl.bufferData(gl.ARRAY_BUFFER,pos,gl.STATIC_DRAW);
  const lp=0;gl.enableVertexAttribArray(lp);gl.vertexAttribPointer(lp,3,gl.FLOAT,false,0,0);
  const n=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,n);gl.bufferData(gl.ARRAY_BUFFER,nrm,gl.STATIC_DRAW);
  const ln=1;gl.enableVertexAttribArray(ln);gl.vertexAttribPointer(ln,3,gl.FLOAT,false,0,0);
+ const u=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,u);gl.bufferData(gl.ARRAY_BUFFER,m.uv?new Float32Array(f32(m.uv)):new Float32Array(pos.length/3*2),gl.STATIC_DRAW);gl.enableVertexAttribArray(2);gl.vertexAttribPointer(2,2,gl.FLOAT,false,0,0);
  const i=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,i);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,idx,gl.STATIC_DRAW);
  const ed=new Uint32Array(idx.length*2);for(let t=0;t<idx.length;t+=3){const o=t*2;ed[o]=idx[t];ed[o+1]=idx[t+1];ed[o+2]=idx[t+1];ed[o+3]=idx[t+2];ed[o+4]=idx[t+2];ed[o+5]=idx[t]}
  const e=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,e);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,ed,gl.STATIC_DRAW);
- gl.bindVertexArray(null);bufs={p,n,i,e,vao,nIdx:idx.length};
+ gl.bindVertexArray(null);bufs={p,n,u,i,e,vao,nIdx:idx.length};loadAtlas(m.atlas,m.atlas_a);
  // grid + axes
  const bb=m.bbox,L=Math.max(bb[1][0]-bb[0][0],bb[1][2]-bb[0][2]);
  const step=0.5,ext=Math.ceil(L*0.9/step)*step,ln_=[];
@@ -126,6 +128,11 @@ function camPos(){const c=Math.cos(st.el);return[st.tx+st.dist*c*Math.sin(st.az)
 function vp(){const w=cv.width,h=cv.height,a=w/h,e=camPos();const up=[0,1,0];const view=m4.look(e,[st.tx,st.ty,st.tz],up);
  const r=model?Math.hypot(model.bbox[1][0]-model.bbox[0][0],model.bbox[1][2]-model.bbox[0][2]):5;
  const pr=st.ortho?m4.ortho(st.dist*0.42,a,-r*6,r*6):m4.persp(0.8,a,Math.max(st.dist*0.02,0.01),st.dist+r*6);return{m:m4.mul(pr,view),e}}
+function mkTex(b64,cb){const img=new Image();img.onload=()=>{const t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,img);gl.generateMipmap(gl.TEXTURE_2D);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);cb(t)};img.src='data:image/png;base64,'+b64}
+function loadAtlas(b64,a64){atlasOn=false;$('#vTex').style.display=b64?'':'none';if(!b64||!a64||!gl)return;let n=0;const done=()=>{if(++n===2)atlasOn=true};
+ mkTex(b64,t=>{if(atlasTex)gl.deleteTexture(atlasTex);atlasTex=t;done()});mkTex(a64,t=>{if(atlasTexA)gl.deleteTexture(atlasTexA);atlasTexA=t;done()})}
 function loadTex(i,url){const img=new Image();img.onload=()=>{if(!gl)return;if(texs[i])gl.deleteTexture(texs[i]);const t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,true);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,img);
   gl.generateMipmap(gl.TEXTURE_2D);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
@@ -151,6 +158,7 @@ function draw(){requestAnimationFrame(draw);if(!ok||!model||!bufs||$('#t_view').
   const k=1+c.sc/100;const s=q.s*k;pr.push(s,q.cx+c.dx,q.cy+c.dy,0);bx.push(...q.box)});
  gl.uniform3fv(U('uAX[0]'),ax);gl.uniform3fv(U('uAY[0]'),ay);gl.uniform4fv(U('uPR[0]'),pr);gl.uniform4fv(U('uBX[0]'),bx);
  for(let i=0;i<5;i++){gl.activeTexture(gl.TEXTURE0+i);gl.bindTexture(gl.TEXTURE_2D,texs[i]||null);gl.uniform1i(U('uT'+i),i)}
+ gl.activeTexture(gl.TEXTURE0+5);gl.bindTexture(gl.TEXTURE_2D,atlasTex||null);gl.uniform1i(U('uAtlas'),5);gl.activeTexture(gl.TEXTURE0+6);gl.bindTexture(gl.TEXTURE_2D,atlasTexA||null);gl.uniform1i(U('uAtlasA'),6);
  gl.uniform4f(U('uHas'),texOn[0],texOn[1],texOn[2],texOn[3]);gl.uniform1f(U('uHas4'),texOn[4]);gl.uniform1f(U('uLiv'),st.liv?1:0);
  gl.bindVertexArray(bufs.vao);const wire=st.mode==='wire';
  const passes=[false,true];
@@ -158,7 +166,7 @@ function draw(){requestAnimationFrame(draw);if(!ok||!model||!bufs||$('#t_view').
   if(glassPass){gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);gl.depthMask(false)}else{gl.disable(gl.BLEND);gl.depthMask(true)}
   if(!wire){gl.enable(gl.POLYGON_OFFSET_FILL);gl.polygonOffset(1,1);gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,bufs.i);
    for(const p of parts){if(p.hidden)continue;const isG=p.cat==='glass';if(isG!==glassPass)continue;let c=model.colors[p.cat];
-    const col=p.cat==='paint'?[st.paint[0],st.paint[1],st.paint[2],1]:c;gl.uniform4f(U('uCol'),col[0],col[1],col[2],col[3]);gl.uniform1f(U('uPaint'),p.cat==='paint'?1:0);gl.uniform1f(U('uFlat'),0);
+    const col=p.cat==='paint'?[st.paint[0],st.paint[1],st.paint[2],1]:c;gl.uniform4f(U('uCol'),col[0],col[1],col[2],col[3]);gl.uniform1f(U('uPaint'),p.cat==='paint'?1:0);gl.uniform1f(U('uFlat'),0);gl.uniform1f(U('uAtl'),(atlasOn&&p.atlas)?st.atl:0);
     gl.drawElements(gl.TRIANGLES,p.n,gl.UNSIGNED_INT,p.i0*4)}
    gl.disable(gl.POLYGON_OFFSET_FILL)}
  }
@@ -193,7 +201,7 @@ document.querySelectorAll('#t_view [data-m]').forEach(b=>b.onclick=()=>{st.mode=
 $('#vPersp').onclick=e=>{st.ortho=!st.ortho;e.target.textContent=st.ortho?'Orthographic':'Perspective'};
 $('#vGrid').onclick=e=>{st.grid=!st.grid;e.target.classList.toggle('on',st.grid)};
 $('#vLiv').onclick=e=>{st.liv=!st.liv;e.target.classList.toggle('on',st.liv)};
-$('#vFit').onclick=fit;
+$('#vFit').onclick=fit;$('#vTex').onchange=e=>{st.atl=+e.target.value};
 $('#vPaint').oninput=e=>{const h=e.target.value;st.paint=[1,3,5].map(i=>parseInt(h.substr(i,2),16)/255)};
 requestAnimationFrame(draw);
 return{init,setModel,setLivery,keyFor:k=>{if(slotKey===k)return false;slotKey=k;return true}}})();
