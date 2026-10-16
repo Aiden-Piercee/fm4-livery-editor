@@ -31,6 +31,7 @@ input[type=range]{width:100%}label{display:block;color:var(--mute);font-size:12p
 .hide{display:none!important}
 __EDITOR_CSS__
 __VIEWER_CSS__
+__DECALS_CSS__
 @media(max-width:900px){main{grid-template-columns:1fr;height:auto}}
 </style></head><body>
 <header><h1>FM4 Livery Tool</h1><span id="chipProfile" class="chip">looking for your game...</span><span class="sp"></span><span class="note" id="ver"></span><button class="sec" id="btnFolder">Change folder</button></header>
@@ -54,7 +55,7 @@ __VIEWER_CSS__
  </div>
  <div class="col">
   <div class="card">
-   <div class="tabs"><button data-t="make" class="on">Image to livery</button><button data-t="share" >Import / export</button><button data-t="edit">Editor</button><button data-t="view">3D view</button><button data-t="bak">Backups</button></div>
+   <div class="tabs"><button data-t="make" class="on">Image to livery</button><button data-t="share" >Import / export</button><button data-t="edit">Editor</button><button data-t="sheet">Texture sheet</button><button data-t="view">3D view</button><button data-t="bak">Backups</button></div>
    <div id="t_make">
      <div class="note" id="selInfo">Pick a garage slot on the left.</div>
      <div class="row"><div><label>Image</label><input type="file" id="img" accept="image/*"></div>
@@ -77,6 +78,7 @@ __VIEWER_CSS__
    </div>
 __EDITOR_HTML__
 __VIEWER_HTML__
+__DECALS_HTML__
    <div id="t_bak" class="hide"><h2>Backups</h2><p class="note">Made automatically before every write. Restoring keeps a copy of what it replaces.</p><div id="bakList" class="note">…</div></div>
   </div>
   <div class="card"><h2>Log</h2><div id="log"></div></div>
@@ -99,7 +101,7 @@ async function loadGarage(){try{const g=await api('garage');rows=g.rows;const z=
 function pick(id){sel=id;document.querySelectorAll('#garage tr').forEach(t=>t.classList.toggle('sel',t.dataset.id==id));const r=rows.find(x=>x.garage_id==id);if(!r)return;
  $('#selInfo').innerHTML='Slot <b>'+r.garage_id+'</b> - '+(r.car!=='?'?r.car:'car '+r.car_id)+(r.livery?'':' <span class="warn">(no livery yet - the garage database will be updated)</span>');
  const need=!r.livery;$('#closedBox').classList.toggle('hide',!need);$('#closedBox2').classList.toggle('hide',!need);}
-document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));['make','share','edit','view','bak'].forEach(t=>$('#t_'+t).classList.toggle('hide',t!==b.dataset.t));if(b.dataset.t==='bak')loadBak();if(b.dataset.t==='view')loadView();if(b.dataset.t==='edit')loadEdit()});
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));['make','share','edit','sheet','view','bak'].forEach(t=>$('#t_'+t).classList.toggle('hide',t!==b.dataset.t));if(b.dataset.t==='bak')loadBak();if(b.dataset.t==='view')loadView();if(b.dataset.t==='sheet')loadSheet();if(b.dataset.t==='edit')loadEdit()});
 $('#shapes').oninput=e=>$('#shV').textContent=e.target.value;
 $('#btnFolder').onclick=()=>{$('#setupCard').classList.toggle('hide')};
 $('#btnFind').onclick=async()=>{try{showState(await api('setup',{root:$('#rootIn').value.trim(),pe:$('#peIn').value,media:$('#mediaIn').value,profile:$('#profSel').value||''}))}catch(e){showState({ok:false,error:e.message});log(e.message,'bad')}};
@@ -123,11 +125,13 @@ $('#btnImp').onclick=async()=>{const f=$('#impFile').files[0];if(!sel)return log
 async function loadBak(){try{const r=await api('backups');const L=$('#bakList');L.innerHTML='';if(!r.files.length)L.textContent='No backups yet.';r.files.forEach(f=>{const d=document.createElement('div');d.style.cssText='display:flex;gap:10px;align-items:center;padding:4px 0;border-bottom:1px solid var(--line)';d.innerHTML='<span style="flex:1;word-break:break-all">'+f+'</span>';const b=document.createElement('button');b.className='sec';b.textContent='Restore';b.onclick=async()=>{try{const x=await api('restore',{file:f});log('restored '+x.restored,'ok');loadGarage()}catch(e){log('restore: '+e.message,'bad')}};d.appendChild(b);L.appendChild(d)})}catch(e){log('backups: '+e.message,'bad')}}
 __EDITOR_JS__
 __VIEWER_JS__
+__DECALS_JS__
 window.__slot=()=>sel;window.__setSlotTex=tp=>{lastPanels=tp;if(window.V)V.setLivery(tp)};
 async function loadEdit(){if(!sel){$('#eInfo').textContent='Pick a garage slot first';return}try{const tp=await E.load(false);if(tp&&tp!==true){window.__setSlotTex(tp)}}catch(e){$('#eInfo').textContent='';log('editor: '+e.message,'bad')}}
 async function loadView(){if(!V.init())return;if(!sel){$('#vStatus').textContent='Pick a garage slot first';return}
  const key=sel+'|'+$('#zipSel').value;if(viewKey===key)return;$('#vStatus').textContent='loading the car model...';$('#vStatus').className='note';
  try{const m=await api('model',{slot:sel,carzip:$('#zipSel').value});V.setModel(m);viewKey=key;if(lastPanels)V.setLivery(lastPanels)}catch(e){$('#vStatus').textContent='';log('3D view: '+e.message,'bad')}}
+async function loadSheet(){await loadView();D.sheetShow()}
 window.addEventListener('pywebviewready',()=>{if(window.pywebview&&window.pywebview.api&&window.pywebview.api.pick_folder)$('#btnPick').classList.remove('hide');$('#btnPickPe').classList.remove('hide');$('#btnPickMedia').classList.remove('hide')});
 $('#btnPickPe').onclick=async()=>{const p=await window.pywebview.api.pick_file();if(p)$('#peIn').value=p};
 $('#btnPickMedia').onclick=async()=>{const p=await window.pywebview.api.pick_folder();if(p)$('#mediaIn').value=p};
@@ -135,5 +139,5 @@ $('#btnPick').onclick=async()=>{const p=await window.pywebview.api.pick_folder()
 (async()=>{try{showState(await api('state'))}catch(e){log(e.message,'bad')}})();
 </script></body></html>'''
 
-from . import gui_viewer as _v, gui_editor as _e
-PAGE = PAGE.replace('__VIEWER_HTML__', _v.HTML).replace('__VIEWER_CSS__', _v.CSS).replace('__VIEWER_JS__', _v.JS).replace('__EDITOR_HTML__', _e.HTML).replace('__EDITOR_CSS__', _e.CSS).replace('__EDITOR_JS__', _e.JS)
+from . import gui_viewer as _v, gui_editor as _e, gui_decals as _d
+PAGE = PAGE.replace('__DECALS_HTML__', _d.HTML).replace('__DECALS_CSS__', _d.CSS).replace('__DECALS_JS__', _d.JS).replace('__VIEWER_HTML__', _v.HTML).replace('__VIEWER_CSS__', _v.CSS).replace('__VIEWER_JS__', _v.JS).replace('__EDITOR_HTML__', _e.HTML).replace('__EDITOR_CSS__', _e.CSS).replace('__EDITOR_JS__', _e.JS)

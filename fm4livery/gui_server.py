@@ -1,5 +1,5 @@
 """Local GUI backend: a tiny HTTP server on 127.0.0.1 (random port, per-run token) serving the page and a JSON API."""
-import base64, io, json, os, secrets, threading, uuid
+import base64, io, json, os, re, secrets, threading, uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from PIL import Image
 from . import app, crypto, design, detect, garage, masks, share, vinyls, __version__
@@ -50,6 +50,21 @@ class Api:
     def model(self, d):
         c = self.need(); slot = int(d['slot']); g = app.load_garage(c); row = app.car_row(g, c, slot)
         return app.model_for_zip(app.car_zip_for(c, row, d.get('carzip') or None))
+    def bake(self, d):
+        c = self.need(); slot = int(d['slot']); g = app.load_garage(c); row = app.car_row(g, c, slot)
+        zp = app.car_zip_for(c, row, d.get('carzip') or None)
+        return app.bake_atlas(zp, base64.b64decode(d['overlay']), os.path.join(self.exports, 'textures'), bool(d.get('zip', True)))
+    def savefile(self, d):
+        c = self.need(); slot = int(d['slot']); g = app.load_garage(c); row = app.car_row(g, c, slot)
+        zp = app.car_zip_for(c, row, d.get('carzip') or None); dd = os.path.join(self.exports, 'templates', os.path.splitext(os.path.basename(zp))[0]); os.makedirs(dd, exist_ok=True)
+        name = re.sub(r'[^A-Za-z0-9_.-]', '_', d['name'])[:60]; open(os.path.join(dd, name), 'wb').write(base64.b64decode(d['data'])); return dict(dir=dd)
+    def decalfit(self, d):
+        c = self.need(); slot = int(d['slot']); g = app.load_garage(c); row = app.car_row(g, c, slot)
+        zp = app.car_zip_for(c, row, d.get('carzip') or None); mk = masks.masks_from_zip(zp)
+        imgs = {p: Image.open(io.BytesIO(base64.b64decode(b))).convert('RGBA') for p, b in d['panels'].items()}
+        fits = app.fit_decal_panels(imgs, mk, int(d.get('shapes', 400)), float(d.get('res', 2.0)))
+        pid = uuid.uuid4().hex; self.fits[pid] = dict(slot=slot, car_id=row['car_id'], fits=fits)
+        return dict(id=pid, total_layers=sum(len(f['layers']) for f in fits.values()))
     def slot(self, d):
         """the livery currently in a slot, decoded to layers per panel (+ shape meshes and mask silhouettes)"""
         c = self.need(); slot = int(d['slot']); g = app.load_garage(c); row = app.car_row(g, c, slot)
@@ -114,7 +129,7 @@ class Api:
     def backups(self): c = self.need(); return dict(files=[os.path.relpath(p, c['profile']) for p in app.backups(c)])
     def restore(self, d): c = self.need(); return dict(restored=os.path.relpath(app.restore(c, os.path.join(c['profile'], d['file'])), c['profile']))
 ROUTES = {'setup': lambda a, d: a.setup(d.get('root') or '', d.get('profile'), pe=d.get('pe'), media=d.get('media')), 'state': lambda a, d: a.state(), 'garage': lambda a, d: a.garage(), 'preview': lambda a, d: a.preview(d), 'model': lambda a, d: a.model(d), 'slot': lambda a, d: a.slot(d), 'savelayers': lambda a, d: a.savelayers(d), 'vinylcat': lambda a, d: a.vinylcat(d), 'fitlayers': lambda a, d: a.fitlayers(d), 'vinylshapes': lambda a, d: a.vinylshapes(d),
-          'apply': lambda a, d: a.apply(d), 'export': lambda a, d: a.export(d), 'import': lambda a, d: a.import_(d), 'backups': lambda a, d: a.backups(), 'restore': lambda a, d: a.restore(d)}
+          'apply': lambda a, d: a.apply(d), 'bake': lambda a, d: a.bake(d), 'savefile': lambda a, d: a.savefile(d), 'decalfit': lambda a, d: a.decalfit(d), 'export': lambda a, d: a.export(d), 'import': lambda a, d: a.import_(d), 'backups': lambda a, d: a.backups(), 'restore': lambda a, d: a.restore(d)}
 def make_server(root=None, port=0):
     api = Api(root); token = secrets.token_urlsafe(16); page = PAGE.replace('__TOKEN__', token).encode('utf-8')
     class H(BaseHTTPRequestHandler):

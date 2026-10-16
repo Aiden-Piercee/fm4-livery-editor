@@ -1,5 +1,5 @@
 """Shared logic for the CLI and the GUI: find the game/profile, fit an image onto panels, build and write designs."""
-import base64, io, os, shutil, time
+import base64, io, os, re, shutil, time, zipfile
 import numpy as np
 from PIL import Image
 from . import crypto, design, detect, garage, masks, share
@@ -111,3 +111,43 @@ def restore(c, path):
     target = path.split('.bak_')[0]; keep = target + '.bak_' + time.strftime('%Y%m%d_%H%M%S') + '_before_restore'
     if os.path.exists(target): shutil.copy2(target, keep)
     shutil.copy2(path, target); return target
+
+def bake_atlas(zip_path, overlay_png, out_dir, make_zip=True):
+    """Composite an RGBA overlay onto the car's baked-livery atlases and write new .xds files (+ a stored-entry copy of the car zip).
+    BUILD ONLY: writes into out_dir, never into the game. Overlay alpha a: rgb = base*(1-a)+overlay*a, atlas alpha = base*(1-a)+255*a (255 = texture overrides paint)."""
+    from . import fzip, xds, xdswrite
+    names = fzip.names(zip_path); targets = [n for n in ('nodamage.xds', 'nodamage_lod0.xds') if n in set(names)]
+    if not targets: raise AppError('this car has no baked-livery texture (nodamage.xds)')
+    ov = Image.open(io.BytesIO(overlay_png)).convert('RGBA')
+    files = fzip.read_files(zip_path) if make_zip else fzip.read_files(zip_path, lambda n: n in targets)
+    d = os.path.join(out_dir, os.path.splitext(os.path.basename(zip_path))[0]); os.makedirs(d, exist_ok=True)
+    new = {}; written = []; worst = 0.0
+    for n in targets:
+        raw = files[n]; base = np.asarray(xds.decode(raw)).astype(np.float32); h, w = base.shape[:2]
+        o = np.asarray(ov if ov.size == (w, h) else ov.resize((w, h), Image.LANCZOS)).astype(np.float32); a = o[..., 3:4] / 255.0
+        out = np.empty_like(base); out[..., :3] = base[..., :3] * (1 - a) + o[..., :3] * a; out[..., 3:4] = base[..., 3:4] * (1 - a) + 255.0 * a
+        out = np.clip(out + 0.5, 0, 255).astype(np.uint8); data = xdswrite.build(raw, out)
+        back = np.asarray(xds.decode(data)).astype(np.float32); err = float(np.abs(back[..., :3] - out[..., :3]).mean()); worst = max(worst, err)
+        if err > 6 or len(data) != len(raw): raise AppError('internal check failed for %s (error %.1f)' % (n, err))
+        new[n] = data; p = os.path.join(d, n); open(p, 'wb').write(data); written.append(p)
+    zp = None
+    if make_zip:
+        zp = os.path.join(d, os.path.basename(zip_path))
+        with zipfile.ZipFile(zp, 'w', zipfile.ZIP_STORED) as z:
+            for n in names:
+                if n.endswith('/'): continue
+                z.writestr(n, new.get(n, files[n]))
+    return dict(dir=d, files=written, zip=zp, err=worst)
+def fit_decal_panels(imgs, mk, shapes=400, res=2.0):
+    """imgs {panel: RGBA PIL image covering exactly the panel box}. Only opaque pixels are fitted; no background layer is added."""
+    from . import fit
+    per = max(1, shapes // max(1, len(imgs))); out = {}
+    for pn, im in imgs.items():
+        if pn not in mk: raise AppError('this car has no %s panel' % pn)
+        a = np.asarray(im.convert('RGBA'))[..., 3]
+        if int((a > 127).sum()) < 20: continue
+        x0, x1, y0, y1 = mk[pn]['box']
+        L, *_ = fit.fit(im.convert('RGB'), x0, x1, y0, y1, n_shapes=per, res=res, seed=1, minsz=3.0, weight=a)
+        out[pn] = dict(box=(x0, x1, y0, y1), layers=list(L[1:]))
+    if not out: raise AppError('no decals landed on a livery panel')
+    return out

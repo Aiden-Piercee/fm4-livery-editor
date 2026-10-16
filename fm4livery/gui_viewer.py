@@ -30,8 +30,10 @@ HTML = r'''
        <button class="sec on" id="vGrid">Grid</button><button class="sec on" id="vLiv">Livery</button><select id="vTex" title="The car's own painted texture (UV set 1 of the car model)" style="width:auto;margin:0;padding:4px 6px;font-size:12px"><option value="0">Car texture: off</option><option value="1" selected>Car texture: baked colour</option><option value="2">Car texture: paint + decals</option></select><button class="sec" id="vFit">Fit view</button>
        <span class="note" id="vStatus" style="margin-left:auto"></span>
      </div>
+     <div class="vbar" id="dLockBar"></div>
      <div class="vwrap" id="vWrap"><canvas id="vGL"></canvas><canvas id="vOverlay"></canvas>
        <div class="vhint">left-drag orbit &middot; right/middle-drag pan &middot; wheel zoom &middot; double-click fit</div><div class="vdim" id="vDim"></div></div>
+     <div id="dBox3"></div>
      <div class="vside">
        <div><label>Parts</label><div class="plist" id="vParts"></div>
          <div class="row" style="margin-top:8px"><div><label>Paint colour</label><input type="color" id="vPaint" value="#cfd3da" style="width:100%;height:32px;padding:2px;background:var(--bg);border:1px solid var(--line);border-radius:7px"></div></div></div>
@@ -57,10 +59,11 @@ const m4={
   const y=[z[1]*x[2]-z[2]*x[1],z[2]*x[0]-z[0]*x[2],z[0]*x[1]-z[1]*x[0]];
   return new Float32Array([x[0],y[0],z[0],0,x[1],y[1],z[1],0,x[2],y[2],z[2],0,-(x[0]*e[0]+x[1]*e[1]+x[2]*e[2]),-(y[0]*e[0]+y[1]*e[1]+y[2]*e[2]),-(z[0]*e[0]+z[1]*e[1]+z[2]*e[2]),1])}
 };
-const cv=$('#vGL'),ov=$('#vOverlay');let gl=null,ok=false;
+const cv=$('#vGL'),ov=$('#vOverlay');let gl=null,ok=false;let geo=null;const hooks={};
+const VIEWS={left:{f:[1,0,0],r:[0,0,1],u:[0,1,0],az:-Math.PI/2,el:0},right:{f:[-1,0,0],r:[0,0,-1],u:[0,1,0],az:Math.PI/2,el:0},front:{f:[0,0,1],r:[-1,0,0],u:[0,1,0],az:Math.PI,el:0},rear:{f:[0,0,-1],r:[1,0,0],u:[0,1,0],az:0,el:0},top:{f:[0,-1,0],r:[1,0,0],u:[0,0,-1],az:Math.PI,el:1.57}};
 let atlasTex=null,atlasTexA=null,atlasOn=false;let vaoL=null,axB=null,model=null,parts=[],bufs=null,progM=null,progL=null,texs={},texOn=[0,0,0,0,0],proj=null,cal={},slotKey=null;
 const PAN=['left','right','front','rear','roof'];
-const st={atl:1,az:3.9,el:0.35,dist:6,tx:0,ty:0.7,tz:0,ortho:false,mode:'shaded',grid:true,liv:true,paint:[0.81,0.83,0.855]};
+const st={lock:null,atl:1,az:3.9,el:0.35,dist:6,tx:0,ty:0.7,tz:0,ortho:false,mode:'shaded',grid:true,liv:true,paint:[0.81,0.83,0.855]};
 const VS=`#version 300 es
 layout(location=0) in vec3 aP;layout(location=1) in vec3 aN;layout(location=2) in vec2 aUV;uniform mat4 uVP;out vec3 vP;out vec3 vN;out vec2 vUV;
 void main(){vP=aP;vN=aN;vUV=aUV;gl_Position=uVP*vec4(aP,1.0);}`;
@@ -106,7 +109,7 @@ function setModel(m){model=m;parts=m.parts;proj=m.proj||{};
  const i=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,i);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,idx,gl.STATIC_DRAW);
  const ed=new Uint32Array(idx.length*2);for(let t=0;t<idx.length;t+=3){const o=t*2;ed[o]=idx[t];ed[o+1]=idx[t+1];ed[o+2]=idx[t+1];ed[o+3]=idx[t+2];ed[o+4]=idx[t+2];ed[o+5]=idx[t]}
  const e=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,e);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,ed,gl.STATIC_DRAW);
- gl.bindVertexArray(null);bufs={p,n,u,i,e,vao,nIdx:idx.length};loadAtlas(m.atlas,m.atlas_a);
+ gl.bindVertexArray(null);bufs={p,n,u,i,e,vao,nIdx:idx.length};geo={pos,nrm,uv:m.uv?new Float32Array(f32(m.uv)):null,idx,parts:m.parts,model:m};loadAtlas(m.atlas,m.atlas_a);if(hooks.model)hooks.model(m);
  // grid + axes
  const bb=m.bbox,L=Math.max(bb[1][0]-bb[0][0],bb[1][2]-bb[0][2]);
  const step=0.5,ext=Math.ceil(L*0.9/step)*step,ln_=[];
@@ -122,7 +125,7 @@ function setModel(m){model=m;parts=m.parts;proj=m.proj||{};
  $('#vStatus').textContent=parts.length+' meshes, '+Math.round(idx.length/3000)+'k triangles';$('#vStatus').className='note ok'}
 function fit(){if(!model)return;const bb=model.bbox;st.tx=(bb[0][0]+bb[1][0])/2;st.ty=(bb[0][1]+bb[1][1])/2;st.tz=(bb[0][2]+bb[1][2])/2;
  const r=Math.hypot(bb[1][0]-bb[0][0],bb[1][1]-bb[0][1],bb[1][2]-bb[0][2])/2;st.dist=r/Math.tan(0.4)*0.8;}
-function setView(n){const t={iso:[3.9,0.35],front:[Math.PI,0],rear:[0,0],left:[-Math.PI/2,0],right:[Math.PI/2,0],top:[Math.PI,1.5533]}[n];st.az=t[0];st.el=t[1];fit();}
+function setView(n){st.lock=null;const t={iso:[3.9,0.35],front:[Math.PI,0],rear:[0,0],left:[-Math.PI/2,0],right:[Math.PI/2,0],top:[Math.PI,1.5533]}[n];st.az=t[0];st.el=t[1];fit();}
 // camera: azimuth 0 = camera on +z looking -z (rear view); pi = front view (car faces -z)
 function camPos(){const c=Math.cos(st.el);return[st.tx+st.dist*c*Math.sin(st.az),st.ty+st.dist*Math.sin(st.el),st.tz+st.dist*c*Math.cos(st.az)]}
 function vp(){const w=cv.width,h=cv.height,a=w/h,e=camPos();const up=[0,1,0];const view=m4.look(e,[st.tx,st.ty,st.tz],up);
@@ -144,6 +147,14 @@ function fitInfo(){const q=PAN.filter(p=>proj[p]).map(p=>p+' '+Math.round(proj[p
 function syncCal(){const p=$('#vCalPanel').value;if(!p||!cal[p])return;const c=cal[p];$('#vSc').value=c.sc;$('#vDx').value=c.dx;$('#vDy').value=c.dy;$('#vScV').textContent=c.sc+'%';$('#vDxV').textContent=c.dx;$('#vDyV').textContent=c.dy}
 ['vSc','vDx','vDy'].forEach(id=>$('#'+id).oninput=()=>{const p=$('#vCalPanel').value;if(!cal[p])return;cal[p]={sc:+$('#vSc').value,dx:+$('#vDx').value,dy:+$('#vDy').value};syncCal()});
 $('#vCalPanel').onchange=syncCal;
+function lock(n){const v=VIEWS[n];if(!v)return;st.lock=n;st.ortho=true;st.az=v.az;st.el=v.el;fit();$('#vPersp').textContent='Orthographic'}
+function unlock(){st.lock=null}
+function view2d(){const v=VIEWS[st.lock];if(!v)return null;const W=cv.clientWidth,H=cv.clientHeight,h=st.dist*0.42,k=H/(2*h);const c=[st.tx,st.ty,st.tz];const dot=(p,q)=>p[0]*q[0]+p[1]*q[1]+p[2]*q[2];const ca=dot(c,v.r),cb=dot(c,v.u);
+ return{W,H,h,k,ca,cb,view:v,name:st.lock,toS:(A,B)=>[W/2+(A-ca)*k,H/2-(B-cb)*k],toW:(x,y)=>[(x-W/2)/k+ca,-((y-H/2)/k)+cb]}}
+function getProj(p){const q=proj&&proj[p];if(!q)return null;const c=cal[p]||{sc:0,dx:0,dy:0};return{ax:q.ax,sx:q.sx,ay:q.ay,sy:q.sy,s:q.s*(1+c.sc/100),cx:q.cx+c.dx,cy:q.cy+c.dy,box:q.box}}
+function upTex(c,old){const t=old||gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,c);gl.generateMipmap(gl.TEXTURE_2D);
+ gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);return t}
+function setAtlasCanvases(rgb,alpha){if(!gl||!model)return;atlasTex=upTex(rgb,atlasTex);atlasTexA=upTex(alpha,atlasTexA);atlasOn=true;$('#vTex').style.display=''}
 function draw(){requestAnimationFrame(draw);if(!ok||!model||!bufs||$('#t_view').classList.contains('hide'))return;
  const W=cv.clientWidth,H=cv.clientHeight,dpr=window.devicePixelRatio||1;if(cv.width!==Math.round(W*dpr)){cv.width=ov.width=Math.round(W*dpr);cv.height=ov.height=Math.round(H*dpr)}
  gl.viewport(0,0,cv.width,cv.height);gl.clearColor(0.055,0.06,0.075,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);gl.enable(gl.DEPTH_TEST);
@@ -182,16 +193,16 @@ function draw(){requestAnimationFrame(draw);if(!ok||!model||!bufs||$('#t_view').
  [['X',[1,0,0],'#e64545'],['Y',[0,1,0],'#4cc38a'],['Z',[0,0,1],'#4aa3ff']].forEach(([n,v,col])=>{
   const x=view[0]*v[0]+view[4]*v[1]+view[8]*v[2],y=view[1]*v[0]+view[5]*v[1]+view[9]*v[2];
   c2.strokeStyle=col;c2.fillStyle=col;c2.lineWidth=2*dpr;c2.beginPath();c2.moveTo(ox,oy);c2.lineTo(ox+x*g,oy-y*g);c2.stroke();c2.font=(11*dpr)+'px sans-serif';c2.fillText(n,ox+x*g*1.18-3*dpr,oy-y*g*1.18+4*dpr)});
- c2.fillStyle='#8d97a8';c2.font=(10*dpr)+'px sans-serif';c2.fillText('car front = -Z',ox-g*0.9,oy+g*1.15);
+ c2.fillStyle='#8d97a8';c2.font=(10*dpr)+'px sans-serif';c2.fillText('car front = -Z',ox-g*0.9,oy+g*1.15);if(hooks.overlay){c2.save();c2.scale(dpr,dpr);hooks.overlay(c2);c2.restore()}
 }
 // interaction
 let drag=null;
 cv.addEventListener('contextmenu',e=>e.preventDefault());
-cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);drag={x:e.clientX,y:e.clientY,b:e.button,shift:e.shiftKey}});
-cv.addEventListener('pointerup',e=>{drag=null});
-cv.addEventListener('pointermove',e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;drag.x=e.clientX;drag.y=e.clientY;
- if(drag.b===0&&!drag.shift){st.az-=dx*0.007;st.el=Math.max(-1.5,Math.min(1.5533,st.el+dy*0.007))}
- else{const s=st.dist*0.0016*(st.ortho?0.8:1.0);const az=st.az,el=st.el;
+cv.addEventListener('pointerdown',e=>{if(hooks.down&&hooks.down(e)){cv.setPointerCapture(e.pointerId);return}cv.setPointerCapture(e.pointerId);drag={x:e.clientX,y:e.clientY,b:e.button,shift:e.shiftKey}});
+cv.addEventListener('pointerup',e=>{if(hooks.up)hooks.up(e);drag=null});
+cv.addEventListener('pointermove',e=>{if(hooks.move&&hooks.move(e))return;if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;drag.x=e.clientX;drag.y=e.clientY;
+ if(drag.b===0&&!drag.shift&&!st.lock){st.az-=dx*0.007;st.el=Math.max(-1.5,Math.min(1.5533,st.el+dy*0.007))}
+ else{const s=st.ortho?2*st.dist*0.42/cv.clientHeight:st.dist*0.0016;const az=st.az,el=st.el;
   const rx=[Math.cos(az),0,-Math.sin(az)],uy=[-Math.sin(el)*Math.sin(az),Math.cos(el),-Math.sin(el)*Math.cos(az)];
   st.tx+=(-dx*rx[0]+dy*uy[0])*s;st.ty+=(dy*uy[1])*s;st.tz+=(-dx*rx[2]+dy*uy[2])*s}});
 cv.addEventListener('wheel',e=>{e.preventDefault();st.dist*=Math.exp(e.deltaY*0.0012);st.dist=Math.max(0.3,Math.min(60,st.dist))},{passive:false});
@@ -204,5 +215,5 @@ $('#vLiv').onclick=e=>{st.liv=!st.liv;e.target.classList.toggle('on',st.liv)};
 $('#vFit').onclick=fit;$('#vTex').onchange=e=>{st.atl=+e.target.value};
 $('#vPaint').oninput=e=>{const h=e.target.value;st.paint=[1,3,5].map(i=>parseInt(h.substr(i,2),16)/255)};
 requestAnimationFrame(draw);
-return{init,setModel,setLivery,keyFor:k=>{if(slotKey===k)return false;slotKey=k;return true}}})();
+return{init,setModel,setLivery,hooks,lock,unlock,view2d,getProj,setAtlasCanvases,st,cv,getGeo:()=>geo,keyFor:k=>{if(slotKey===k)return false;slotKey=k;return true}}})();
 '''

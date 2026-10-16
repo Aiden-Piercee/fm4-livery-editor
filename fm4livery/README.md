@@ -26,3 +26,12 @@ The LZX helper (`native/fzlzx.c`) is built from libmspack in the same workflow; 
 ### 3D view
 
 The **3D view** tab shows the real body of the selected car (read from your own car zip at run time, nothing is bundled) in a CAD-style viewer: orbit, pan, zoom, preset views (iso/front/rear/left/right/top), perspective or orthographic, shaded / edges / wireframe, grid, axis gizmo, overall dimensions and a parts list. Your latest preview is projected onto the paintable body panels. The placement is fitted automatically to the car's livery masks and is approximate; the sliders nudge it. Windows glass shows as plain glass because the game cannot paint over it.
+
+## Decals and texture sheet (baked-livery cars)
+
+Cars with a baked race-livery texture (`nodamage.xds`) can be decorated in two ways. Both end up in the same texture.
+
+* **Texture sheet tab** - the car's texture atlas laid flat with UV outlines. Drop or add PNG/JPG/SVG images, move/scale/rotate them, or load a sheet you painted elsewhere ("Save atlas + UV template" exports the atlas and the outlines for that).
+* **3D view** - lock to Left / Right / Front / Rear / Top (orthographic) and drag and drop images or SVGs onto the car. They are baked through the car's UV map, hidden surfaces excluded, onto every visible panel. "Send 3D decals to the editor" instead fits them into garage `.liv` layers (approximate).
+
+"Build texture files" writes the edited `nodamage.xds` / `nodamage_lod0.xds` (and a stored-entry copy of the car zip) into `fm4livery_exports/textures/<car>/`. Nothing is installed into the game; copy files in yourself with the game closed. Mip levels above 16 texels are regenerated; the tail tile is kept from the original.
