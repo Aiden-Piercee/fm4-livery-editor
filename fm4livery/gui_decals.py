@@ -26,6 +26,7 @@ HTML = r'''
        <span class="sep"></span>
        <button id="shExport" title="Builds the edited .xds files and a copy of the car zip in the output folder. Nothing is installed.">Build texture files</button>
        <input id="shName" placeholder="name this edit" style="width:140px">
+       <label class="chk" title="Saves the edit as its OWN new car (new database row, name and media copy) so it can exist next to the original and other edits"><input type="checkbox" id="shClone">as new car</label>
        <button id="shSave" title="Keeps this edit in your texture library for the selected car. Nothing is installed until you press Apply in the Library tab.">Save to library</button>
        <button class="sec" id="shTemplate">Save atlas + UV template</button>
        <span class="note" id="shStatus" style="margin-left:auto"></span>
@@ -246,21 +247,21 @@ $('#shExport').onclick=exportXds;
 
 async function libShow(){try{const l=await api('liblist',sel?{slot:sel,carzip:$('#zipSel').value}:{});const box=$('#libList');box.innerHTML='';
   const by={};l.entries.forEach(e=>(by[e.car]=by[e.car]||[]).push(e));const cars=Object.keys(by).sort();if(!cars.length)box.textContent='Nothing saved yet - make an edit in the Texture sheet or 3D view and press "Save to library".';
-  cars.forEach(car=>{const h=el('div',null);h.style.cssText='margin:10px 0 4px;font-weight:600;color:var(--text)';h.textContent=car+(car===l.car?'  (selected car)':'')+(l.installed_cars.includes(car)?'   - in game':'');box.appendChild(h);
-   const none=el('label','chk');none.innerHTML='<input type="radio" name="lib_'+car+'" '+(by[car].some(e=>e.active)?'':'checked')+'> original (no texture edit)';none.firstChild.onchange=async()=>{await api('libset',{deactivate_car:car});libShow()};box.appendChild(none);
+  cars.forEach(car=>{const h=el('div',null);h.style.cssText='margin:10px 0 4px;font-weight:600;color:var(--text)';const cl=by[car][0].clone;h.textContent=(cl?cl.display+'  (new car, copy of '+cl.donor+', id '+cl.car_id+')':car)+(car===l.car?'  (selected car)':'')+(l.installed_cars.includes(car)||l.installed_clones.includes(car)?'   - in game':'');box.appendChild(h);
+   const none=el('label','chk');none.innerHTML='<input type="radio" name="lib_'+car+'" '+(by[car].some(e=>e.active)?'':'checked')+'> '+(by[car][0].clone?'not in game':'original (no texture edit)');none.firstChild.onchange=async()=>{if(by[car][0].clone&&!await askYes('Take this new car out of the game? Garage cars of this model would stop working.')){libShow();return}await api('libset',{deactivate_car:car});libShow()};box.appendChild(none);
    by[car].forEach(e=>{const row=el('div',null);row.style.cssText='display:flex;gap:8px;align-items:center';const lb=el('label','chk');lb.style.flex='1';lb.innerHTML='<input type="radio" name="lib_'+car+'" '+(e.active?'checked':'')+'> ';lb.appendChild(document.createTextNode(e.name+'  '));const sm=el('span','note',e.created+(e.source==='imported'?' · imported':''));lb.appendChild(sm);
-    lb.firstChild.onchange=async()=>{await api('libset',{activate:e.id});libShow()};row.appendChild(lb);const rm=el('button','sec','Remove');rm.style.padding='3px 8px';rm.onclick=async()=>{if(!await askYes('Remove "'+e.name+'" from the library? (it is moved to the backups folder, not deleted)'))return;await api('libset',{remove:e.id});libShow()};row.appendChild(rm);box.appendChild(row)})});
+    lb.firstChild.onchange=async()=>{await api('libset',{activate:e.id});libShow()};row.appendChild(lb);const rm=el('button','sec','Remove');rm.style.padding='3px 8px';rm.onclick=async()=>{if(!await askYes('Remove "'+e.name+'" from the library? (it is moved to the backups folder, not deleted)'+(e.clone?' A garage car using this new car would lose its model - remove those first.':'')))return;await api('libset',{remove:e.id});libShow()};row.appendChild(rm);box.appendChild(row)})});
   $('#libNote').textContent=l.legacy.length?l.legacy.length+' pack(s) from an earlier version are installed; Apply will absorb them into the library and move them out of the game.':''}
  catch(e){$('#libList').textContent='';log('library: '+e.message,'bad')}}
 $('#libRefresh').onclick=libShow;
 $('#shSave').onclick=async()=>{if(!sel)return log('pick a garage slot first','warn');if(!A.hasAtlas)return log('this car has no baked-livery texture','warn');
  if(!A.dec3.length&&!A.sheet.length)return log('nothing placed yet','warn');const btn=$('#shSave');setBusy(true,btn,'Saving…');
- try{const c=compose(2048);const r=await api('libsave',{slot:sel,carzip:$('#zipSel').value,overlay:await b64(await blobOf(c.overlay)),name:$('#shName').value,activate:true});
-  log('saved "'+r.entry.name+'" for '+r.entry.car+' to the library (active). Open the Library tab and press Apply to put it in the game.','ok');$('#shStatus').textContent='saved to library';$('#shName').value=''}
+ try{const c=compose(2048);const r=await api('libsave',{slot:sel,carzip:$('#zipSel').value,overlay:await b64(await blobOf(c.overlay)),name:$('#shName').value,activate:true,clone:$('#shClone').checked});
+  log('saved "'+r.entry.name+'" '+(r.entry.clone?'as a NEW car (id '+r.entry.clone.car_id+', copy of '+r.entry.clone.donor+')':'for '+r.entry.car)+' to the library (active). Open the Library tab and press Apply to put it in the game.','ok');$('#shStatus').textContent='saved to library';$('#shName').value=''}
  catch(e){log('save: '+e.message,'bad')}finally{setBusy(false,btn)}};
 $('#libApply').onclick=async()=>{if(!await askYes('Is the game fully closed? This rebuilds one texture pack from the active library edits and installs it (earlier packs are moved to the backups folder; original car files are not changed).'))return;
  const btn=$('#libApply');setBusy(true,btn,'Applying…');
- try{const r=await api('libapply',{confirm:true,gameClosed:true});log(r.cars.length?('installed one pack covering '+r.cars.length+' car(s): '+r.cars.join(', ')):'no active edits - the texture pack was removed from the game','ok');
+ try{const r=await api('libapply',{confirm:true,gameClosed:true});log((r.cars.length||r.clones.length)?('installed one pack: '+r.cars.length+' texture override(s)'+(r.clones.length?', '+r.clones.length+' new car(s): '+r.clones.join(', '):'')):'no active edits - the texture pack was removed from the game','ok');
   r.absorbed.forEach(n=>log('  absorbed into the library: '+n));r.moved_out.forEach(f=>log('  moved out to '+f));log('backups: '+r.backups+'. Untested in game until you look at the car - Apply with "original" selected undoes it.');libShow()}
  catch(e){log('apply: '+e.message,'bad')}finally{setBusy(false,btn)}};
 $('#libStfs').onclick=async()=>{const btn=$('#libStfs');setBusy(true,btn,'Packaging…');

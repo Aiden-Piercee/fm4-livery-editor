@@ -119,17 +119,17 @@ function listMode(m){$('#lsGarage').classList.toggle('on',m==='garage');$('#lsCa
 async function loadCars(){try{const r=await api('cars');carRows=r.rows;const z=$('#zipSel');if(z.options.length<2)carRows.forEach(c=>{const o=document.createElement('option');o.value=c.zip;o.textContent=c.car+'.zip';z.appendChild(o)});renderCars()}catch(e){$('#carList').innerHTML='<tr><td class="note">'+e.message+'</td></tr>'}}
 function renderCars(){const q=($('#carFind').value||'').toLowerCase();const tb=$('#carList');tb.innerHTML='';carRows.filter(c=>!q||(c.title+' '+c.car).toLowerCase().includes(q)).slice(0,600).forEach(c=>{const tr=document.createElement('tr');tr.dataset.id=c.key;tr.innerHTML='<td title="'+c.car+'">'+(c.title||c.car)+'</td>';tr.onclick=()=>pick(c.key);if(sel===c.key)tr.classList.add('sel');tb.appendChild(tr)})}
 $('#carFind').oninput=renderCars;$('#lsGarage').onclick=()=>listMode('garage');$('#lsCars').onclick=()=>listMode('cars');
-function activeTab(){const b=document.querySelector('.tabs button.on');return b?b.dataset.t:''}
+function activeTab(){const b=document.querySelector('.tabs button[data-t].on');return b?b.dataset.t:''}
 function refreshActive(){const t=activeTab();if(t==='view')loadView();else if(t==='sheet')loadSheet();else if(t==='edit')loadEdit()}
 function pick(id){const changed=sel!==id;sel=id;if(changed&&prevSlot!==id)lastPanels=null;document.querySelectorAll('#garage tr,#carList tr').forEach(t=>t.classList.toggle('sel',t.dataset.id==id));
  if(typeof id==='string'&&id.startsWith('car:')){const c=carRows.find(x=>x.key===id);if(!c)return;$('#selInfo').innerHTML='Car <b>'+(c.title||c.car)+'</b> <span class="note">('+c.car+')</span>';if(changed)refreshActive();return}
  const r=rows.find(x=>x.garage_id==id);if(!r)return;
  $('#selInfo').innerHTML='Slot <b>'+r.garage_id+'</b> - '+(r.title||(r.car!=='?'?r.car:'car '+r.car_id))+(r.livery?'':' <span class="warn">(no livery yet - the garage database will be updated)</span>');
  const need=!r.livery;$('#closedBox').classList.toggle('hide',!need);$('#closedBox2').classList.toggle('hide',!need);if(changed)refreshActive()}
-document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));['make','share','edit','sheet','view','lib','bak'].forEach(t=>$('#t_'+t).classList.toggle('hide',t!==b.dataset.t));if(b.dataset.t==='bak')loadBak();if(b.dataset.t==='view')loadView();if(b.dataset.t==='sheet')loadSheet();if(b.dataset.t==='edit')loadEdit();if(b.dataset.t==='lib')D.libShow()});
-function setMode(m){document.querySelectorAll('.modes button').forEach(x=>x.classList.toggle('on',x.dataset.m===m));document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('hide',x.dataset.m!==m))}
+document.querySelectorAll('.tabs button[data-t]').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabs button[data-t]').forEach(x=>x.classList.toggle('on',x===b));['make','share','edit','sheet','view','lib','bak'].forEach(t=>$('#t_'+t).classList.toggle('hide',t!==b.dataset.t));if(b.dataset.t==='bak')loadBak();if(b.dataset.t==='view')loadView();if(b.dataset.t==='sheet')loadSheet();if(b.dataset.t==='edit')loadEdit();if(b.dataset.t==='lib')D.libShow()});
+function setMode(m){document.querySelectorAll('.modes button').forEach(x=>x.classList.toggle('on',x.dataset.m===m));document.querySelectorAll('.tabs button[data-t]').forEach(x=>x.classList.toggle('hide',x.dataset.m!==m))}
 function goTab(t){const b=document.querySelector('.tabs button[data-t='+t+']');setMode(b.dataset.m);b.click()}
-document.querySelectorAll('.modes button').forEach(b=>b.onclick=()=>{setMode(b.dataset.m);const f=[...document.querySelectorAll('.tabs button')].find(x=>x.dataset.m===b.dataset.m);f.click()});
+document.querySelectorAll('.modes button').forEach(b=>b.onclick=()=>{setMode(b.dataset.m);const f=[...document.querySelectorAll('.tabs button[data-t]')].find(x=>x.dataset.m===b.dataset.m);f.click()});
 $('#zipSel').addEventListener('change',()=>refreshActive());
 $('#shapes').oninput=e=>$('#shV').textContent=e.target.value;
 $('#btnHelp').onclick=()=>showIntro(true);

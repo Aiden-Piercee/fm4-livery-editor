@@ -92,14 +92,23 @@ class Api:
         live = {}
         for p in inst:
             for k, v in (p.get('cars') or {}).items(): live[k] = v.get('files', {})
-        return dict(car=car, entries=lib.entries, legacy=legacy, installed_cars=sorted(live), pack_root=pr)
+        return dict(car=car, entries=lib.entries, legacy=legacy, installed_cars=sorted(live), installed_clones=sorted({k for p in inst for k in (p.get('clones') or {})}), pack_root=pr)
     def lib_save(self, d):
         """bake the overlay for the selected car and keep it in the library (not installed)"""
         c = self.need(); zp, car = self._car(c, d); lib = self._lib(c)
         r = app.bake_atlas(zp, base64.b64decode(d['overlay']), os.path.join(self.exports, 'textures'), False)
         tex = {os.path.basename(f): open(f, 'rb').read() for f in r['files']}
         orig = packs.save_originals(car, zp, set(tex), os.path.join(c['root'], 'fm4livery_backups'))
-        e = lib.add(car, (d.get('name') or '').strip(), tex, orig, activate=bool(d.get('activate', True))); return dict(entry=e, err=r['err'])
+        name = (d.get('name') or '').strip(); clone = None; ecar = car
+        if d.get('clone'):
+            if not name: raise app.AppError('give the new car a name first (the name box)')
+            if not c['media'] or not os.path.isfile(os.path.join(c['media'], 'db', 'gamedb.slt')): raise app.AppError('cloning needs the game database (Media\\db\\gamedb.slt)')
+            from . import clone as CL
+            db = CL.open_db(os.path.join(c['media'], 'db', 'gamedb.slt'))
+            if CL.donor_id(db, car) is None: raise app.AppError('only base-game cars can be cloned for now (%s is not in the base database)' % car)
+            used = CL.used_car_ids(db); db.close(); cid = lib.next_clone_id(used); ecar = '%s_X%d' % (car, cid)
+            clone = dict(media=ecar, car_id=cid, donor=car, display=name)
+        e = lib.add(ecar, name, tex, orig, activate=bool(d.get('activate', True)), clone=clone); return dict(entry=e, err=r['err'])
     def lib_set(self, d):
         c = self._need_c(); lib = self._lib(c)
         if d.get('deactivate_car'): lib.deactivate_car(d['deactivate_car'])
@@ -113,9 +122,9 @@ class Api:
         if not (d.get('confirm') and d.get('gameClosed')): raise app.AppError('installing needs confirmation and the game closed')
         c = self.need(); pr, bk = self._pk(c); lib = self._lib(c)
         legacy = packs.legacy_entries(pr); absorbed = lib.absorb(legacy); moved = []
-        tex, orig = lib.active(); folder = packs.folder_name('library'); res = dict(absorbed=[e['name'] for e in absorbed], cars=sorted(tex), backups=bk)
-        if tex:
-            b = packs.build(os.path.join(self.exports, 'packs'), tex, pr, originals=orig); i = packs.install(pr, b, bk)
+        tex, orig, cl = lib.active_split(); folder = packs.folder_name('library'); res = dict(absorbed=[e['name'] for e in absorbed], cars=sorted(tex), clones=[x['display'] for x in cl], backups=bk)
+        if tex or cl:
+            b = packs.build(os.path.join(self.exports, 'packs'), tex, pr, originals=orig, clones=self._clones(c, cl), media=c['media'], roots=[c['root']], installed_dir=os.path.join(pr, folder)); i = packs.install(pr, b, bk)
             res.update(folder=b['folder'], dest=i['dest'], parked=i['parked'])
         elif folder in [p['folder'] for p in packs.installed(pr)]:
             moved += packs.uninstall(pr, folder, bk)
@@ -127,13 +136,20 @@ class Api:
         c = self.need(); lib = self._lib(c); pr = packs.find_pack_root(c['root'])
         tpl = d.get('template') or stfs.find_template([c['root'], os.path.dirname(c['media'] or ''), self.exports])
         if not tpl or not stfs.is_template(tpl): raise app.AppError('no retail FM4 DLC package (STFS LIVE file) found to use as the template - type its full path in the template box')
-        tex, orig = lib.active()
+        tex, orig, cl = lib.active_split()
         if pr:
             lg = lib.absorb(packs.legacy_entries(pr))
-            if lg: tex, orig = lib.active()
-        if not tex: raise app.AppError('the library has no active texture edits - save one and make it active first')
-        b = packs.build(os.path.join(self.exports, 'packs'), tex, pr, originals=orig)
-        info = packs.export_stfs(b, tpl, os.path.join(self.exports, 'stfs')); info['template'] = tpl; info['cars'] = sorted(tex); return info
+            if lg: tex, orig, cl = lib.active_split()
+        if not tex and not cl: raise app.AppError('the library has no active texture edits - save one and make it active first')
+        b = packs.build(os.path.join(self.exports, 'packs'), tex, pr, originals=orig, clones=self._clones(c, cl), media=c['media'], roots=[c['root']], installed_dir=os.path.join(pr, packs.folder_name('library')) if pr else None)
+        info = packs.export_stfs(b, tpl, os.path.join(self.exports, 'stfs')); info['template'] = tpl; info['cars'] = sorted(tex) + [x['display'] for x in cl]; return info
+    def _clones(self, c, cl):
+        out = []
+        for x in cl:
+            zp = detect.car_zip(c['media'], x['donor']) if c['media'] else None
+            if not zp: raise app.AppError('cannot find the donor car zip for ' + x['donor'])
+            out.append(dict(x, donor_zip=zp))
+        return out
     def savefile(self, d):
         c = self.need(); zp = self._car(c, d)[0]; dd = os.path.join(self.exports, 'templates', os.path.splitext(os.path.basename(zp))[0]); os.makedirs(dd, exist_ok=True)
         name = re.sub(r'[^A-Za-z0-9_.-]', '_', d['name'])[:60]; open(os.path.join(dd, name), 'wb').write(base64.b64decode(d['data'])); return dict(dir=dd)

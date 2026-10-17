@@ -2,6 +2,7 @@
 loose nodamage*.xds files over game:\\Media\\Cars\\<CAR>\\ at a higher priority. Restore = move that one package away.
 Layout copied from the installed Widebody / Damage Plus packs. In-game acceptance of texture overrides is UNTESTED."""
 import hashlib, json, os, shutil, struct, time, zipfile
+from . import clone as CL
 PRIO = 27300            # above widebody carbins (27200); brake-options strings use 27250
 TAG = 'fm4livery.json'
 def _sha(b): return hashlib.sha256(b).hexdigest()
@@ -34,22 +35,44 @@ def _zip_stored(path, files):
     with zipfile.ZipFile(path, 'w', zipfile.ZIP_STORED) as z:
         for n, b in files.items():
             zi = zipfile.ZipInfo(n, (1980, 1, 1, 0, 0, 0)); zi.compress_type = zipfile.ZIP_STORED; z.writestr(zi, b)
-def build(out_dir, cars, pack_root=None, prio=PRIO, originals=None, label='library'):
-    """cars {CAR: {entry name: bytes}}. One package holding one override zip per car.
+def offer_for(folder):
+    """stable offer number + 16-hex OfferId for a package folder name"""
+    offer = 3000 + int(folder[:6], 16) % 900; return offer, '4D530910F4FF%04X' % offer
+def build(out_dir, cars, pack_root=None, prio=PRIO, originals=None, label='library', clones=None, media=None, roots=(), installed_dir=None):
+    """cars {CAR: {entry name: bytes}} -> one override zip per car mounted over game:\\Media\\Cars\\<CAR>\\ .
+    clones [{media, car_id, donor, donor_zip, display, tex}] -> a main zip with new cars (+ database execute.sql, merge.slt, string tables).
     Writes <out_dir>/<folder>/ and <out_dir>/<folder>.header; returns dict(folder, dir, header, zips, manifest)."""
-    folder = folder_name(label); d = os.path.join(out_dir, folder); media = os.path.join(d, 'Media'); dz = os.path.join(media, 'DLCZips')
+    folder = folder_name(label); d = os.path.join(out_dir, folder); mdir = os.path.join(d, 'Media'); dz = os.path.join(mdir, 'DLCZips')
     if os.path.isdir(d): shutil.rmtree(d)
-    os.makedirs(dz); offer = '9%04d' % (int(folder[:6], 16) % 10000)
-    open(os.path.join(media, offer + '.puboffer'), 'wb').write(b'\x20\x0d\x0a')
-    open(os.path.join(dz, 'stringtables.xml'), 'w').write('<stringtables>\r\n</stringtables>\r\n')
-    zips = []; lines = []
+    os.makedirs(dz); offer, offer_hex = offer_for(folder)
+    open(os.path.join(mdir, '%d.puboffer' % offer), 'wb').write(b'\x20\x0d\x0a')
+    zips = []; mounts = []; tables = []; report = {}
     for car, tex in sorted(cars.items()):
-        zn = 'Tex%s_pri_%d.zip' % (car.replace('_', ''), prio); _zip_stored(os.path.join(dz, zn), tex); zips.append(zn)
-        lines.append('\t<zip Name="%s" Mount="game:\\Media\\Cars\\%s\\" AltRootPath="game:\\Media\\Cars\\%s\\" ShouldCache="0" />' % (zn, car, car))
-    open(os.path.join(dz, 'zipmount.xml'), 'w').write('<zipmounts>\r\n' + '\r\n'.join(lines) + '\r\n</zipmounts>\r\n')
-    man = dict(tool='fm4livery', kind='library', priority=prio, created=time.strftime('%Y-%m-%d %H:%M:%S'),
-               cars={c: dict(files={n: _sha(b) for n, b in t.items()}, original_sha256=(originals or {}).get(c, {})) for c, t in cars.items()})
-    open(os.path.join(media, TAG), 'w').write(json.dumps(man, indent=1))
+        zn = 'Tex%s_pri_%d.zip' % (car.replace('_', ''), prio); CL.write_zip(os.path.join(dz, zn), [CL.stored(n, b) for n, b in tex.items()]); zips.append(zn)
+        mounts.append('   <zip Name="%s" Mount="game:\\Media\\Cars\\%s\\" AltRootPath="game:\\Media\\Cars\\%s\\" ShouldCache="0" />' % (zn, car, car))
+    if clones:
+        if not media: raise ValueError('cloning needs the Media folder')
+        gdb = os.path.join(media, 'db', 'gamedb.slt'); db = CL.open_db(gdb)
+        strs, refs, maxpri = CL.string_pack(media, roots, installed_dir, clones, CL.reader)
+        stmts = []; entries = []
+        for cl in clones:
+            did = CL.donor_id(db, cl['donor'])
+            if did is None: raise ValueError('donor car %s is not in the base game database' % cl['donor'])
+            dref, sref = refs[cl['media']]; st, rep = CL.make_sql(db, did, cl['car_id'], cl['media'], dref, sref, int(offer_hex, 16)); stmts += st; report[cl['media']] = rep
+            entries += CL.car_entries(cl['donor_zip'], cl['media'], cl['tex'])
+        entries.append(CL.stored('media/db/patch/%d000_merge.slt' % offer, CL.merge_slt(gdb, os.path.join(out_dir, '_merge_tmp.slt'), offer, offer_hex)))
+        for i, ch in enumerate(CL.chunk_sql(stmts), 1): entries.append(CL.stored('media/db/patch/%d%03d_execute.sql' % (offer, i), ch.encode('ascii')))
+        CL.write_zip(os.path.join(dz, '%d_pri_65.zip' % offer), entries); db.close(); os.remove(os.path.join(out_dir, '_merge_tmp.slt'))
+        sp = max(26000, maxpri + 1); sn = 'StringTables_pri_%d.zip' % sp
+        CL.write_zip(os.path.join(dz, sn), [CL.stored('%s/Data_Car.str' % l, b) for l, b in sorted(strs.items())]); zips.append(sn)
+        mounts.append('   <zip Name="%s" Mount="game:\\Media\\StringTables\\"  />' % sn); tables.append('Data_Car')
+    open(os.path.join(dz, 'zipmount.xml'), 'w').write('<?xml version="1.0" ?> \r\n<zipmount> \r\n' + '\r\n'.join(mounts) + ('\r\n' if mounts else '') + '</zipmount> \r\n')
+    open(os.path.join(dz, 'stringtables.xml'), 'w').write('<?xml version="1.0" ?> \r\n<stringtables> \r\n' + ''.join('   <table Name="%s" /> \r\n' % t for t in tables) + '</stringtables> \r\n')
+    man = dict(tool='fm4livery', kind='library', priority=prio, created=time.strftime('%Y-%m-%d %H:%M:%S'), offer=offer,
+               cars={c: dict(files={n: _sha(b) for n, b in t.items()}, original_sha256=(originals or {}).get(c, {})) for c, t in cars.items()},
+               clones={cl['media']: dict(car_id=cl['car_id'], donor=cl['donor'], display=cl['display'], rows=report.get(cl['media'], {}),
+                                          files={n: _sha(b) for n, b in cl['tex'].items()}) for cl in (clones or [])})
+    open(os.path.join(mdir, TAG), 'w').write(json.dumps(man, indent=1))
     hp = os.path.join(out_dir, folder + '.header'); open(hp, 'wb').write(make_header(pack_root or '', folder, 'FM4 Livery Textures'))
     return dict(folder=folder, dir=d, header=hp, zips=zips, manifest=man)
 def installed(pack_root):

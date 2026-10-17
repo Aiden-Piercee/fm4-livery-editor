@@ -9,11 +9,11 @@ class Library:
     def _save(self):
         tmp = self.ix + '.tmp'; json.dump(dict(entries=self.entries), open(tmp, 'w'), indent=1); os.replace(tmp, self.ix)
     def _dir(self, eid): return os.path.join(self.dir, 'entries', eid)
-    def add(self, car, name, tex, originals=None, activate=True, source='editor'):
+    def add(self, car, name, tex, originals=None, activate=True, source='editor', clone=None):
         eid = time.strftime('%Y%m%d-%H%M%S') + '-' + hashlib.sha1(os.urandom(8)).hexdigest()[:4]; d = self._dir(eid); os.makedirs(d)
         for n, b in tex.items(): open(os.path.join(d, n), 'wb').write(b)
         e = dict(id=eid, car=car, name=name or 'Edit ' + eid[:13], created=time.strftime('%Y-%m-%d %H:%M:%S'), active=False, source=source,
-                 files={n: hashlib.sha256(b).hexdigest() for n, b in tex.items()}, original_sha256=originals or {})
+                 files={n: hashlib.sha256(b).hexdigest() for n, b in tex.items()}, original_sha256=originals or {}, clone=clone)
         self.entries.append(e)
         if activate: self.set_active(eid)
         else: self._save()
@@ -44,6 +44,18 @@ class Library:
         for e in self.entries:
             if e['active']: t[e['car']] = self.tex(e['id']); o[e['car']] = e.get('original_sha256', {})
         return t, o
+    def next_clone_id(self, used, first=9700):
+        taken = set(used) | {e['clone']['car_id'] for e in self.entries if e.get('clone')}; i = first
+        while i in taken: i += 1
+        return i
+    def active_split(self):
+        """(overrides {car: tex}, originals {car: hashes}, clones [dict(media, car_id, donor, display, tex)])"""
+        t = {}; o = {}; cl = []
+        for e in self.entries:
+            if not e['active']: continue
+            if e.get('clone'): cl.append(dict(e['clone'], tex=self.tex(e['id'])))
+            else: t[e['car']] = self.tex(e['id']); o[e['car']] = e.get('original_sha256', {})
+        return t, o, cl
     def absorb(self, legacy):
         """import packs from older versions; they become the active edit for their car unless one is already active"""
         got = []
