@@ -61,8 +61,10 @@ def build(out_dir, cars, pack_root=None, prio=PRIO, originals=None, label='libra
             taken = CL.installed_car_ids([pack_root], exclude_dir=d_installed) if (pack_root and os.path.isdir(pack_root)) else {}
             if cl['car_id'] in taken: raise ValueError('car id %d is already used by installed package %s' % (cl['car_id'], taken[cl['car_id']]))
             dref, sref = refs[cl['media']]; st, rep = CL.make_sql(db, did, cl['car_id'], cl['media'], dref, sref, int(offer_hex, 16)); stmts += st; report[cl['media']] = rep
-            ctex = dict(cl['tex']); da = CL.damage_attribs(roots or [pack_root], cl['donor'], d_installed) if (roots or pack_root) else None
-            if da and 'carattribs.xml' not in ctex: ctex['carattribs.xml'] = da; report[cl['media']]['damage_attribs'] = 'from installed override pack'
+            ctex = dict(cl['tex']); dov = CL.damage_overrides(roots or [pack_root], cl['donor'], d_installed) if (roots or pack_root) else {}
+            for k, v in dov.items():
+                if k not in ctex: ctex[k] = v
+            if dov: report[cl['media']]['damage_overrides'] = sorted(dov)
             entries += CL.car_entries(cl['donor_zip'], cl['media'], ctex)
         entries.append(CL.stored('media/db/patch/%d000_merge.slt' % offer, CL.merge_slt(gdb, os.path.join(tempfile.gettempdir(), 'fm4livery_merge_tmp.slt'), offer, offer_hex)))
         for i, ch in enumerate(CL.chunk_sql(stmts), 1): entries.append(CL.stored('media/db/patch/%d%03d_execute.sql' % (offer, i), ch.encode('ascii')))
@@ -97,11 +99,26 @@ def install(pack_root, built, backup_root):
     hdest = os.path.join(hd, f + '.header'); parked = []
     if os.path.isdir(dest): parked.append(_park(dest, backup_root, f))
     if os.path.isfile(hdest): parked.append(_park(hdest, backup_root, f + '.header'))
-    shutil.copytree(built['dir'], dest); shutil.copyfile(built['header'], hdest)
+    shutil.copytree(built['dir'], dest); shutil.copyfile(built['header'], hdest); extracted = extract_zips(dest)
     # verify
     for zn in built['zips']: assert zipfile.ZipFile(os.path.join(dest, 'Media', 'DLCZips', zn)).testzip() is None
     assert os.path.getsize(hdest) >= 0x148
-    return dict(dest=dest, header=hdest, parked=parked)
+    return dict(dest=dest, header=hdest, parked=parked, extracted=extracted)
+def extract_zips(pkg_dir):
+    """Unpack every Media/DLCZips/*.zip into a sibling folder of the same name (zip kept). Xenia reads the game's DLC from these
+    extracted folders (dlczips\\<name>_pri_NN\\...) and never opens the zips, so a pack without them is invisible there; the recomp is happy with both."""
+    from . import fzip
+    dz = os.path.join(pkg_dir, 'Media', 'DLCZips'); done = []
+    for zn in sorted(os.listdir(dz)):
+        if not zn.lower().endswith('.zip'): continue
+        out = os.path.join(dz, zn[:-4])
+        with open(os.path.join(dz, zn), 'rb') as f:
+            for i in zipfile.ZipFile(f).infolist():
+                if i.filename.endswith('/'): continue
+                p = os.path.join(out, *i.filename.split('/')); os.makedirs(os.path.dirname(p), exist_ok=True)
+                with open(p, 'wb') as o: o.write(fzip.read_entry(f, i))
+        done.append(zn[:-4])
+    return done
 def uninstall(pack_root, folder, backup_root):
     """Restore = move the package + header out of the game (kept in backup_root, never deleted)."""
     if folder not in [p['folder'] for p in installed(pack_root)]: raise ValueError('not a fm4livery texture pack')
