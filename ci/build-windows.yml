@@ -2,6 +2,7 @@ name: Build Windows package
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     tags: ['v*']
 jobs:
   build:
@@ -17,6 +18,7 @@ jobs:
         run: |
           git clone https://github.com/kyz/libmspack.git /tmp/libmspack
           git -C /tmp/libmspack checkout 55d501976171397ccd5d5a7a1ca7da065b1d9a06
+          mkdir -p fm4livery/lib
           gcc -shared -O2 -static-libgcc -o fm4livery/lib/fzlzx.dll native/fzlzx.c /tmp/libmspack/libmspack/mspack/lzxd.c -I/tmp/libmspack/libmspack/mspack
       - name: Build exe
         shell: pwsh

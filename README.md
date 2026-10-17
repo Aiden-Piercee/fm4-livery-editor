@@ -12,12 +12,13 @@ Replacing an existing .liv works while the game runs. Panels checked in game (Fa
 Status: untested on a second profile or on a clean Windows machine. LZX helper: libfzlzx.so (Linux) - Windows DLL still to build.
 
 ## Graphical tool
+No Python on the machine? Use the Windows download below (`FM4 Livery Tool.exe`): it needs nothing installed.
 Run `python run_livery.py` (or double-click `FM4 Livery Tool.exe` from the Windows build) with no arguments. It opens a window (pywebview / Windows' built-in WebView2) and falls back to your browser if the window can't open.
 It finds your game folder and profile, lists your garage, fits an image onto the chosen panels with a live preview, writes the livery, and handles import / export and backups. Everything runs locally on 127.0.0.1.
 If your game isn't found, type or browse to the folder that contains `default.pe` and your profile.
 
 ## Standalone Windows download (no Python needed)
-The repo builds a single `fm4livery.exe` for you with GitHub Actions: push this repo to GitHub, move `ci/build-windows.yml` to `.github/workflows/build-windows.yml` (tools that edit your repo for you may not be allowed to write there), then open **Actions -> Build Windows package -> Run workflow**,
+The repo builds a single `fm4livery.exe` for you with GitHub Actions: push this repo to GitHub (the workflow is already at `.github/workflows/build-windows.yml` and runs on every push to main), then open **Actions -> Build Windows package** and open the latest run,
 then download the `fm4livery-windows` artifact (a zip with `fm4livery.exe`, this README and the licence notes). Tagging a release (`v*`) runs the same build.
 `FM4 Livery Tool.exe` opens the GUI (no console window). `fm4livery.exe` is the command-line version; run it from a command prompt, e.g. `fm4livery.exe --root "C:\path\to\your\recomp" garage`. Double-clicking shows the usage.
 
