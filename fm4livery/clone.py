@@ -120,11 +120,20 @@ def raw_entries(zip_path):
             f.seek(i.header_offset); h = f.read(30); nl, el = struct.unpack('<HH', h[26:30]); f.seek(i.header_offset + 30 + nl + el)
             yield i.filename, i.compress_type, i.CRC, i.file_size, f.read(i.compress_size)
 def car_entries(donor_zip, new_media, tex):
-    """donor zip raw-copied under media/cars/<new_media>/ ; texture files in tex replaced by stored copies"""
-    out = []; seen = set()
+    """donor zip raw-copied under media/cars/<new_media>/ ; texture files in tex replaced by stored copies.
+    The game finds a car's model by its media name (<media>.carbin, <media>_lod0.carbin, <media>_cockpit.carbin, brake parts,
+    digitalgauge/dash_<media>.*), so files that carry the donor's media name are renamed to the new one; a file another file
+    may refer to by its old name (the odometer xds) is kept under both names."""
+    donor = os.path.splitext(os.path.basename(donor_zip))[0].lower(); nm = new_media.lower(); out = []; seen = set()
+    def ren(name):
+        d, _, b = name.rpartition('/'); lb = b.lower()
+        if lb.startswith(donor) or lb.startswith('dash_' + donor): return (d + '/' if d else '') + lb.replace(donor, nm, 1)
+        return None
     for name, meth, crc, usize, raw in raw_entries(donor_zip):
-        if name in tex: out.append(stored('media/cars/%s/%s' % (new_media, name), tex[name])); seen.add(name)
-        else: out.append(('media/cars/%s/%s' % (new_media, name), meth, crc, usize, raw))
+        r = ren(name); keep_old = r is None or name.lower().endswith('.xds')
+        if name in tex: out.append(stored('media/cars/%s/%s' % (new_media, name), tex[name])); seen.add(name); continue
+        if r: out.append(('media/cars/%s/%s' % (new_media, r), meth, crc, usize, raw))
+        if keep_old: out.append(('media/cars/%s/%s' % (new_media, name), meth, crc, usize, raw))
     for n in tex:
         if n not in seen: out.append(stored('media/cars/%s/%s' % (new_media, n), tex[n]))
     return out
