@@ -1,7 +1,7 @@
 """Texture override packs: the original car zip is never touched. A small DLC-style package is added that mounts
 loose nodamage*.xds files over game:\\Media\\Cars\\<CAR>\\ at a higher priority. Restore = move that one package away.
 Layout copied from the installed Widebody / Damage Plus packs. In-game acceptance of texture overrides is UNTESTED."""
-import hashlib, json, os, shutil, struct, time, zipfile
+import hashlib, json, os, shutil, struct, tempfile, time, zipfile
 from . import clone as CL
 PRIO = 27300            # above widebody carbins (27200); brake-options strings use 27250
 TAG = 'fm4livery.json'
@@ -54,15 +54,17 @@ def build(out_dir, cars, pack_root=None, prio=PRIO, originals=None, label='libra
         if not media: raise ValueError('cloning needs the Media folder')
         gdb = os.path.join(media, 'db', 'gamedb.slt'); db = CL.open_db(gdb)
         strs, refs, maxpri = CL.string_pack(media, roots, installed_dir, clones, CL.reader)
-        stmts = []; entries = []
+        d_installed = installed_dir; stmts = []; entries = []
         for cl in clones:
             did = CL.donor_id(db, cl['donor'])
             if did is None: raise ValueError('donor car %s is not in the base game database' % cl['donor'])
+            taken = CL.installed_car_ids([pack_root], exclude_dir=d_installed) if (pack_root and os.path.isdir(pack_root)) else {}
+            if cl['car_id'] in taken: raise ValueError('car id %d is already used by installed package %s' % (cl['car_id'], taken[cl['car_id']]))
             dref, sref = refs[cl['media']]; st, rep = CL.make_sql(db, did, cl['car_id'], cl['media'], dref, sref, int(offer_hex, 16)); stmts += st; report[cl['media']] = rep
             entries += CL.car_entries(cl['donor_zip'], cl['media'], cl['tex'])
-        entries.append(CL.stored('media/db/patch/%d000_merge.slt' % offer, CL.merge_slt(gdb, os.path.join(out_dir, '_merge_tmp.slt'), offer, offer_hex)))
+        entries.append(CL.stored('media/db/patch/%d000_merge.slt' % offer, CL.merge_slt(gdb, os.path.join(tempfile.gettempdir(), 'fm4livery_merge_tmp.slt'), offer, offer_hex)))
         for i, ch in enumerate(CL.chunk_sql(stmts), 1): entries.append(CL.stored('media/db/patch/%d%03d_execute.sql' % (offer, i), ch.encode('ascii')))
-        CL.write_zip(os.path.join(dz, '%d_pri_65.zip' % offer), entries); db.close(); os.remove(os.path.join(out_dir, '_merge_tmp.slt'))
+        CL.write_zip(os.path.join(dz, '%d_pri_65.zip' % offer), entries); db.close(); os.remove(os.path.join(tempfile.gettempdir(), 'fm4livery_merge_tmp.slt'))
         sp = max(26000, maxpri + 1); sn = 'StringTables_pri_%d.zip' % sp
         CL.write_zip(os.path.join(dz, sn), [CL.stored('%s/Data_Car.str' % l, b) for l, b in sorted(strs.items())]); zips.append(sn)
         mounts.append('   <zip Name="%s" Mount="game:\\Media\\StringTables\\"  />' % sn); tables.append('Data_Car')

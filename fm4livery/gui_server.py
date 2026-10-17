@@ -106,7 +106,10 @@ class Api:
             from . import clone as CL
             db = CL.open_db(os.path.join(c['media'], 'db', 'gamedb.slt'))
             if CL.donor_id(db, car) is None: raise app.AppError('only base-game cars can be cloned for now (%s is not in the base database)' % car)
-            used = CL.used_car_ids(db); db.close(); cid = lib.next_clone_id(used); ecar = '%s_X%d' % (car, cid)
+            used = CL.used_car_ids(db); db.close()
+            try: used |= set(CL.installed_car_ids([self._pk(c)[0]], exclude_dir=os.path.join(self._pk(c)[0], packs.folder_name('library'))))
+            except app.AppError: pass
+            cid = lib.next_clone_id(used); ecar = '%s_X%d' % (car, cid)
             clone = dict(media=ecar, car_id=cid, donor=car, display=name)
         e = lib.add(ecar, name, tex, orig, activate=bool(d.get('activate', True)), clone=clone); return dict(entry=e, err=r['err'])
     def lib_set(self, d):

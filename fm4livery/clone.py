@@ -25,6 +25,29 @@ def used_car_ids(db, merges=()):
             c = open_db(p); ids |= {r[0] for r in c.execute('select Id from Data_Car')}; c.close()
         except sqlite3.Error: pass
     return ids
+def installed_car_ids(roots, exclude_dir=None):
+    """car ids defined by installed packs (Data_Car rows in their *merge.slt) -> {id: package folder}; a clone must not reuse one"""
+    import tempfile
+    from . import fzip
+    out = {}
+    for r in roots:
+        if not r or not os.path.isdir(r): continue
+        for d in sorted(os.listdir(r)):
+            dz = os.path.join(r, d, 'Media', 'DLCZips')
+            if not os.path.isdir(dz) or (exclude_dir and os.path.abspath(os.path.join(r, d)) == os.path.abspath(exclude_dir)): continue
+            for z in sorted(os.listdir(dz)):
+                if not z.lower().endswith('_pri_65.zip'): continue
+                try: g = fzip.read_files(os.path.join(dz, z), lambda n: n.lower().endswith('merge.slt'))
+                except Exception: continue
+                for b in g.values():
+                    with tempfile.NamedTemporaryFile(suffix='.slt', delete=False) as f: f.write(b); p = f.name
+                    try:
+                        c = sqlite3.connect(p)
+                        for (i,) in c.execute('select Id from Data_Car'): out.setdefault(i, d)
+                        c.close()
+                    except sqlite3.Error: pass
+                    finally: os.remove(p)
+    return out
 def make_sql(db, donor, new_id, new_media, disp_ref, short_ref, offer_int):
     """-> (statements, report {table: rows}). Row ids in car-owned tables follow the base convention (car*1000+n); others get 90000000+new*1000+k."""
     out = []; rep = {}
