@@ -25,16 +25,27 @@ HTML = r'''
        <button class="sec on" id="shUV">UV outlines</button><button class="sec" id="shAlpha">Show alpha</button><button class="sec" id="shReset">Reset zoom</button>
        <span class="sep"></span>
        <button id="shExport" title="Builds the edited .xds files and a copy of the car zip in the output folder. Nothing is installed.">Build texture files</button>
-       <button id="shInstall" title="Builds a texture override pack and installs it into the game's package folder. The original car zip is never changed. Game must be closed.">Install to game</button>
-       <button class="sec" id="shStfs" title="Wraps the texture pack as an STFS package (Xenia Install Content / modded consoles). The signature is NOT re-created - hardware needs it re-signed. Needs a retail FM4 DLC package as a template.">Export STFS</button>
-       <input id="shTpl" placeholder="STFS template path (optional)" style="width:190px">
-       <button class="sec" id="shRestore" title="Moves this car's texture pack out of the game (kept in the backups folder)">Restore original</button>
+       <input id="shName" placeholder="name this edit" style="width:140px">
+       <button id="shSave" title="Keeps this edit in your texture library for the selected car. Nothing is installed until you press Apply in the Library tab.">Save to library</button>
        <button class="sec" id="shTemplate">Save atlas + UV template</button>
        <span class="note" id="shStatus" style="margin-left:auto"></span>
      </div>
      <div class="shwrap" id="shWrap"><canvas id="shCv"></canvas><div class="vhint">drop images / SVGs here &middot; wheel zoom &middot; drag empty space to pan &middot; drag a picture to move, corner = size, top knob = rotate</div></div>
      <div id="shPanel"></div>
      <p class="note">Everything you place here (and everything placed in the 3D view) is combined into the car's <b>baked-livery texture</b>. The 3D view shows it live. Use the UV outlines to see which part of the sheet is which panel. These changes go into texture files (<code>nodamage.xds</code>) in an output folder - they are not the garage <code>.liv</code> livery.</p>
+   </div>
+
+   <div id="t_lib" class="hide">
+     <h2>Texture library</h2>
+     <p class="note">Every texture edit you save is kept here, per car. Choose which edit is <b>active</b> for each car (or <b>original</b> for none), then <b>Apply</b>: the game gets ONE combined pack built from the active edits. Earlier per-car packs are absorbed here automatically. The original car files are never changed.</p>
+     <div id="libList" class="note">...</div>
+     <div class="row" style="margin-top:12px;align-items:end">
+       <div style="flex:0 0 auto"><button id="libApply">Apply to game</button></div>
+       <div style="flex:0 0 auto"><button class="sec" id="libRefresh">Refresh</button></div>
+       <div><label>STFS template <span class="note">(a retail FM4 DLC package; blank = search)</span></label><input id="shTpl" placeholder="optional full path"></div>
+       <div style="flex:0 0 auto"><button class="sec" id="libStfs" title="Wraps the combined pack as an STFS package for Xenia Install Content / modded consoles. The signature is NOT re-created.">Export STFS</button></div>
+     </div>
+     <p class="note" id="libNote"></p>
    </div>
 '''
 
@@ -221,7 +232,7 @@ async function sendToEditor(shapes,btn){
    for(const L of decs){if(!localUV(L,Aa,-Bb,uvo))continue;const c=sample(L,uvo[0],uvo[1]),as=c[3]*L.op;if(as<=0)continue;const ad=px[o+3]/255,ao=as+ad*(1-as);px[o]=(c[0]*as+px[o]*ad*(1-as))/ao;px[o+1]=(c[1]*as+px[o+1]*ad*(1-as))/ao;px[o+2]=(c[2]*as+px[o+2]*ad*(1-as))/ao;px[o+3]=ao*255}}
   const c=cvs(W,H);c.getContext('2d').putImageData(img,0,0);out[pn]=await b64(await new Promise(r=>c.toBlob(r,'image/png')))}
  if(!Object.keys(out).length)return;setBusy(true,btn,'Fitting shapes…');
- try{const r=await api('decalfit',{slot:sel,carzip:$('#zipSel').value,panels:out,shapes});const lay=await api('fitlayers',{id:r.id});prevId=r.id;prevSlot=sel;document.querySelector('.tabs button[data-t=edit]').click();await E.importLayers(lay.panels,$('#openHow').value);log('decals sent to the editor as '+r.total_layers+' layers','ok')}
+ try{const r=await api('decalfit',{slot:sel,carzip:$('#zipSel').value,panels:out,shapes});const lay=await api('fitlayers',{id:r.id});prevId=r.id;prevSlot=sel;goTab('edit');await E.importLayers(lay.panels,$('#openHow').value);log('decals sent to the editor as '+r.total_layers+' layers','ok')}
  catch(e){log('decals to editor: '+e.message,'bad')}finally{setBusy(false,btn)}}
 
 // ---------- export ----------
@@ -232,22 +243,30 @@ async function exportXds(){if(!sel)return log('pick a garage slot first','warn')
   log('texture files written to '+r.dir,'ok');r.files.forEach(f=>log('  '+f));if(r.zip)log('  car zip copy: '+r.zip+' (stored/uncompressed entries - not installed anywhere)');log('round-trip check: mean error '+r.err.toFixed(2)+' (levels of 255)');$('#shStatus').textContent='built - '+r.dir}
  catch(e){log('build: '+e.message,'bad')}finally{setBusy(false,btn)}}
 $('#shExport').onclick=exportXds;
-$('#shInstall').onclick=async()=>{if(!sel)return log('pick a garage slot first','warn');if(!A.hasAtlas)return log('this car has no baked-livery texture','warn');
- if(!A.dec3.length&&!A.sheet.length)return log('nothing placed yet','warn');
- if(!await askYes('Is the game fully closed? Installing adds a texture pack to the game folder (the original car zip is not changed; Restore undoes it).'))return;
- const btn=$('#shInstall');setBusy(true,btn,'Installing…');
- try{const c=compose(2048);const r=await api('install',{slot:sel,carzip:$('#zipSel').value,overlay:await b64(await blobOf(c.overlay)),confirm:true,gameClosed:true});
-  log('installed texture pack for '+r.car+' -> '+r.dest,'ok');r.files.forEach(f=>log('  '+f));r.parked.forEach(f=>log('  previous copy kept at '+f));log('pristine originals + backups: '+r.backups+' . Start the game and look at the car. Untested in-game: use Restore original if anything looks wrong.');$('#shStatus').textContent='installed - '+r.car}
- catch(e){log('install: '+e.message,'bad')}finally{setBusy(false,btn)}};
-$('#shStfs').onclick=async()=>{if(!sel)return log('pick a garage slot first','warn');if(!A.hasAtlas)return log('this car has no baked-livery texture','warn');
- if(!A.dec3.length&&!A.sheet.length)return log('nothing placed yet','warn');const btn=$('#shStfs');setBusy(true,btn,'Packaging…');
- try{const c=compose(2048);const r=await api('stfs',{slot:sel,carzip:$('#zipSel').value,overlay:await b64(await blobOf(c.overlay)),template:$('#shTpl').value.trim()});
-  log('STFS package written: '+r.path+' ('+r.verified_files+' files read back OK, template '+r.template+')','ok');log('The signature is stale (cannot be re-created). Xenia/recomp do not check it; a retail console does - hardware users must re-sign it. Untested on hardware.','warn');$('#shStatus').textContent='STFS built'}
+
+async function libShow(){try{const l=await api('liblist',sel?{slot:sel,carzip:$('#zipSel').value}:{});const box=$('#libList');box.innerHTML='';
+  const by={};l.entries.forEach(e=>(by[e.car]=by[e.car]||[]).push(e));const cars=Object.keys(by).sort();if(!cars.length)box.textContent='Nothing saved yet - make an edit in the Texture sheet or 3D view and press "Save to library".';
+  cars.forEach(car=>{const h=el('div',null);h.style.cssText='margin:10px 0 4px;font-weight:600;color:var(--text)';h.textContent=car+(car===l.car?'  (selected car)':'')+(l.installed_cars.includes(car)?'   - in game':'');box.appendChild(h);
+   const none=el('label','chk');none.innerHTML='<input type="radio" name="lib_'+car+'" '+(by[car].some(e=>e.active)?'':'checked')+'> original (no texture edit)';none.firstChild.onchange=async()=>{await api('libset',{deactivate_car:car});libShow()};box.appendChild(none);
+   by[car].forEach(e=>{const row=el('div',null);row.style.cssText='display:flex;gap:8px;align-items:center';const lb=el('label','chk');lb.style.flex='1';lb.innerHTML='<input type="radio" name="lib_'+car+'" '+(e.active?'checked':'')+'> ';lb.appendChild(document.createTextNode(e.name+'  '));const sm=el('span','note',e.created+(e.source==='imported'?' · imported':''));lb.appendChild(sm);
+    lb.firstChild.onchange=async()=>{await api('libset',{activate:e.id});libShow()};row.appendChild(lb);const rm=el('button','sec','Remove');rm.style.padding='3px 8px';rm.onclick=async()=>{if(!await askYes('Remove "'+e.name+'" from the library? (it is moved to the backups folder, not deleted)'))return;await api('libset',{remove:e.id});libShow()};row.appendChild(rm);box.appendChild(row)})});
+  $('#libNote').textContent=l.legacy.length?l.legacy.length+' pack(s) from an earlier version are installed; Apply will absorb them into the library and move them out of the game.':''}
+ catch(e){$('#libList').textContent='';log('library: '+e.message,'bad')}}
+$('#libRefresh').onclick=libShow;
+$('#shSave').onclick=async()=>{if(!sel)return log('pick a garage slot first','warn');if(!A.hasAtlas)return log('this car has no baked-livery texture','warn');
+ if(!A.dec3.length&&!A.sheet.length)return log('nothing placed yet','warn');const btn=$('#shSave');setBusy(true,btn,'Saving…');
+ try{const c=compose(2048);const r=await api('libsave',{slot:sel,carzip:$('#zipSel').value,overlay:await b64(await blobOf(c.overlay)),name:$('#shName').value,activate:true});
+  log('saved "'+r.entry.name+'" for '+r.entry.car+' to the library (active). Open the Library tab and press Apply to put it in the game.','ok');$('#shStatus').textContent='saved to library';$('#shName').value=''}
+ catch(e){log('save: '+e.message,'bad')}finally{setBusy(false,btn)}};
+$('#libApply').onclick=async()=>{if(!await askYes('Is the game fully closed? This rebuilds one texture pack from the active library edits and installs it (earlier packs are moved to the backups folder; original car files are not changed).'))return;
+ const btn=$('#libApply');setBusy(true,btn,'Applying…');
+ try{const r=await api('libapply',{confirm:true,gameClosed:true});log(r.cars.length?('installed one pack covering '+r.cars.length+' car(s): '+r.cars.join(', ')):'no active edits - the texture pack was removed from the game','ok');
+  r.absorbed.forEach(n=>log('  absorbed into the library: '+n));r.moved_out.forEach(f=>log('  moved out to '+f));log('backups: '+r.backups+'. Untested in game until you look at the car - Apply with "original" selected undoes it.');libShow()}
+ catch(e){log('apply: '+e.message,'bad')}finally{setBusy(false,btn)}};
+$('#libStfs').onclick=async()=>{const btn=$('#libStfs');setBusy(true,btn,'Packaging…');
+ try{const r=await api('stfs',{template:$('#shTpl').value.trim()});
+  log('STFS package written: '+r.path+' ('+r.verified_files+' files read back OK, '+r.cars.length+' car(s), template '+r.template+')','ok');log('The signature is stale (cannot be re-created). Xenia/recomp do not check it; a retail console does - hardware users must re-sign it. Untested on hardware.','warn')}
  catch(e){log('STFS: '+e.message,'bad')}finally{setBusy(false,btn)}};
-$('#shRestore').onclick=async()=>{try{const l=await api('packs',{slot:sel,carzip:$('#zipSel').value});const car=l.car;const m=l.packs.filter(p=>p.car===car);
- if(!m.length)return log('no installed texture pack for '+car,'warn');if(!await askYes('Is the game closed? Move the texture pack for '+car+' out of the game?'))return;
- for(const p of m){const r=await api('uninstall',{folder:p.folder});log('moved out: '+r.moved.join(' , '),'ok')}$('#shStatus').textContent='restored '+car}
- catch(e){log('restore: '+e.message,'bad')}};
 $('#shTemplate').onclick=async()=>{if(!sel||!A.hasAtlas)return log('open a car with a baked livery texture first','warn');try{const S=2048;const w=wire(S,'rgba(0,255,255,0.9)',1.2),base=cvs(S),g=base.getContext('2d');g.drawImage(A.base,0,0,S,S);const al=cvs(S);al.getContext('2d').drawImage(A.baseA,0,0,S,S);
   const mix=cvs(S),gm=mix.getContext('2d');gm.drawImage(base,0,0);gm.drawImage(w,0,0);let dir='';
   for(const [n,c] of [['atlas_colour.png',base],['atlas_alpha.png',al],['uv_outlines.png',w],['atlas_with_uv.png',mix]]){const r=await api('savefile',{slot:sel,carzip:$('#zipSel').value,name:n,data:await b64(await blobOf(c))});dir=r.dir}
@@ -260,5 +279,5 @@ V.hooks.model=async m=>{A.dec3=[];A.sheet=[];A.sel3=A.selS=null;A.ver3++;A.bk=nu
  if(!m.atlas||!m.atlas_a){$('#shStatus').textContent='this car has no baked-livery texture';return}
  const [b,a]=await Promise.all([loadImg(m.atlas),loadImg(m.atlas_a)]);if(!b||!a)return;A.base=b;A.baseA=a;A.hasAtlas=true;A.wire=wire(1024,'rgba(0,255,255,0.4)',.6);$('#shStatus').textContent='';refresh()};
 mkBar();mk3();
-return{sheetShow(){drawSheet();if(!A.hasAtlas&&V.getGeo()==null)$('#shStatus').textContent='pick a garage slot first'; else refresh()},A,compose,bake}})();
+return{libShow,sheetShow(){drawSheet();if(!A.hasAtlas&&V.getGeo()==null)$('#shStatus').textContent='pick a garage slot first'; else refresh()},A,compose,bake}})();
 '''

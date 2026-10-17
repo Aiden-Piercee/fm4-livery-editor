@@ -58,33 +58,62 @@ class Api:
         pr = packs.find_pack_root(c['root'])
         if not pr: raise app.AppError('no 4D530910\\00000002 package folder found under the chosen folder')
         return pr, os.path.join(c['root'], 'fm4livery_backups')
-    def install(self, d):
-        if not (d.get('confirm') and d.get('gameClosed')): raise app.AppError('installing needs confirmation and the game closed')
-        c = self.need(); slot = int(d['slot']); g = app.load_garage(c); row = app.car_row(g, c, slot)
-        zp = app.car_zip_for(c, row, d.get('carzip') or None); pr, bk = self._pk(c); car = os.path.splitext(os.path.basename(zp))[0]
-        r = app.bake_atlas(zp, base64.b64decode(d['overlay']), os.path.join(self.exports, 'textures'), False)
-        tex = {os.path.basename(f): open(f, 'rb').read() for f in r['files']}
-        orig = packs.save_originals(car, zp, set(tex), bk)
-        b = packs.build(os.path.join(self.exports, 'packs'), car, tex, pr, originals=orig)
-        i = packs.install(pr, b, bk); return dict(car=car, folder=b['folder'], dest=i['dest'], parked=i['parked'], backups=bk, files=sorted(tex))
-    def stfs_export(self, d):
-        from . import stfs
-        c = self.need(); slot = int(d['slot']); g = app.load_garage(c); row = app.car_row(g, c, slot)
-        zp = app.car_zip_for(c, row, d.get('carzip') or None); car = os.path.splitext(os.path.basename(zp))[0]
-        tpl = d.get('template') or stfs.find_template([c['root'], os.path.dirname(c['media'] or ''), self.exports])
-        if not tpl or not stfs.is_template(tpl): raise app.AppError('no retail FM4 DLC package (STFS LIVE file) found to use as the template - type its full path in the template box')
+    def _lib(self, c):
+        from . import library
+        return library.Library(c['root'])
+    def _car(self, c, d):
+        g = app.load_garage(c); row = app.car_row(g, c, int(d['slot'])); zp = app.car_zip_for(c, row, d.get('carzip') or None)
+        return zp, os.path.splitext(os.path.basename(zp))[0]
+    def lib_list(self, d=None):
+        c = self.need(); lib = self._lib(c); d = d or {}; car = None
+        if d.get('slot') is not None: car = self._car(c, d)[1]
+        pr = packs.find_pack_root(c['root']); inst = packs.installed(pr) if pr else []
+        legacy = [dict(folder=p['folder'], car=p['car']) for p in inst if p.get('car') and p.get('kind') != 'library']
+        live = {}
+        for p in inst:
+            for k, v in (p.get('cars') or {}).items(): live[k] = v.get('files', {})
+        return dict(car=car, entries=lib.entries, legacy=legacy, installed_cars=sorted(live), pack_root=pr)
+    def lib_save(self, d):
+        """bake the overlay for the selected car and keep it in the library (not installed)"""
+        c = self.need(); zp, car = self._car(c, d); lib = self._lib(c)
         r = app.bake_atlas(zp, base64.b64decode(d['overlay']), os.path.join(self.exports, 'textures'), False)
         tex = {os.path.basename(f): open(f, 'rb').read() for f in r['files']}
         orig = packs.save_originals(car, zp, set(tex), os.path.join(c['root'], 'fm4livery_backups'))
-        b = packs.build(os.path.join(self.exports, 'packs'), car, tex, None, originals=orig)
-        info = packs.export_stfs(b, tpl, os.path.join(self.exports, 'stfs'), car); info['template'] = tpl; return info
-    def uninstall(self, d):
-        c = self.need(); pr, bk = self._pk(c); return dict(moved=packs.uninstall(pr, d['folder'], bk), backups=bk)
-    def packs_list(self, d=None):
-        c = self.need(); pr, bk = self._pk(c); car = None; d = d or {}
-        if d.get('slot') is not None:
-            g = app.load_garage(c); row = app.car_row(g, c, int(d['slot'])); car = os.path.splitext(os.path.basename(app.car_zip_for(c, row, d.get('carzip') or None)))[0]
-        return dict(root=pr, car=car, packs=packs.installed(pr))
+        e = lib.add(car, (d.get('name') or '').strip(), tex, orig, activate=bool(d.get('activate', True))); return dict(entry=e, err=r['err'])
+    def lib_set(self, d):
+        c = self._need_c(); lib = self._lib(c)
+        if d.get('deactivate_car'): lib.deactivate_car(d['deactivate_car'])
+        if d.get('activate'): lib.set_active(d['activate'])
+        if d.get('rename'): lib.rename(d['rename']['id'], d['rename']['name'])
+        if d.get('remove'): lib.remove(d['remove'], os.path.join(c['root'], 'fm4livery_backups', '_to_delete'))
+        return dict(entries=lib.entries)
+    def _need_c(self): return self.need()
+    def lib_apply(self, d):
+        """rebuild the ONE combined pack from the active library entries and install it (older per-car packs are absorbed and moved out)"""
+        if not (d.get('confirm') and d.get('gameClosed')): raise app.AppError('installing needs confirmation and the game closed')
+        c = self.need(); pr, bk = self._pk(c); lib = self._lib(c)
+        legacy = packs.legacy_entries(pr); absorbed = lib.absorb(legacy); moved = []
+        tex, orig = lib.active(); folder = packs.folder_name('library'); res = dict(absorbed=[e['name'] for e in absorbed], cars=sorted(tex), backups=bk)
+        if tex:
+            b = packs.build(os.path.join(self.exports, 'packs'), tex, pr, originals=orig); i = packs.install(pr, b, bk)
+            res.update(folder=b['folder'], dest=i['dest'], parked=i['parked'])
+        elif folder in [p['folder'] for p in packs.installed(pr)]:
+            moved += packs.uninstall(pr, folder, bk)
+        for l in legacy:
+            if l['folder'] != folder: moved += packs.uninstall(pr, l['folder'], bk)
+        res['moved_out'] = moved; return res
+    def stfs_export(self, d):
+        from . import stfs
+        c = self.need(); lib = self._lib(c); pr = packs.find_pack_root(c['root'])
+        tpl = d.get('template') or stfs.find_template([c['root'], os.path.dirname(c['media'] or ''), self.exports])
+        if not tpl or not stfs.is_template(tpl): raise app.AppError('no retail FM4 DLC package (STFS LIVE file) found to use as the template - type its full path in the template box')
+        tex, orig = lib.active()
+        if pr:
+            lg = lib.absorb(packs.legacy_entries(pr))
+            if lg: tex, orig = lib.active()
+        if not tex: raise app.AppError('the library has no active texture edits - save one and make it active first')
+        b = packs.build(os.path.join(self.exports, 'packs'), tex, pr, originals=orig)
+        info = packs.export_stfs(b, tpl, os.path.join(self.exports, 'stfs')); info['template'] = tpl; info['cars'] = sorted(tex); return info
     def savefile(self, d):
         c = self.need(); slot = int(d['slot']); g = app.load_garage(c); row = app.car_row(g, c, slot)
         zp = app.car_zip_for(c, row, d.get('carzip') or None); dd = os.path.join(self.exports, 'templates', os.path.splitext(os.path.basename(zp))[0]); os.makedirs(dd, exist_ok=True)
@@ -160,7 +189,7 @@ class Api:
     def backups(self): c = self.need(); return dict(files=[os.path.relpath(p, c['profile']) for p in app.backups(c)])
     def restore(self, d): c = self.need(); return dict(restored=os.path.relpath(app.restore(c, os.path.join(c['profile'], d['file'])), c['profile']))
 ROUTES = {'setup': lambda a, d: a.setup(d.get('root') or '', d.get('profile'), pe=d.get('pe'), media=d.get('media')), 'state': lambda a, d: a.state(), 'garage': lambda a, d: a.garage(), 'preview': lambda a, d: a.preview(d), 'model': lambda a, d: a.model(d), 'slot': lambda a, d: a.slot(d), 'savelayers': lambda a, d: a.savelayers(d), 'vinylcat': lambda a, d: a.vinylcat(d), 'fitlayers': lambda a, d: a.fitlayers(d), 'vinylshapes': lambda a, d: a.vinylshapes(d),
-          'apply': lambda a, d: a.apply(d), 'bake': lambda a, d: a.bake(d), 'savefile': lambda a, d: a.savefile(d), 'install': lambda a, d: a.install(d), 'uninstall': lambda a, d: a.uninstall(d), 'stfs': lambda a, d: a.stfs_export(d), 'packs': lambda a, d: a.packs_list(d), 'decalfit': lambda a, d: a.decalfit(d), 'export': lambda a, d: a.export(d), 'import': lambda a, d: a.import_(d), 'backups': lambda a, d: a.backups(), 'restore': lambda a, d: a.restore(d)}
+          'apply': lambda a, d: a.apply(d), 'bake': lambda a, d: a.bake(d), 'savefile': lambda a, d: a.savefile(d), 'stfs': lambda a, d: a.stfs_export(d), 'liblist': lambda a, d: a.lib_list(d), 'libsave': lambda a, d: a.lib_save(d), 'libset': lambda a, d: a.lib_set(d), 'libapply': lambda a, d: a.lib_apply(d), 'decalfit': lambda a, d: a.decalfit(d), 'export': lambda a, d: a.export(d), 'import': lambda a, d: a.import_(d), 'backups': lambda a, d: a.backups(), 'restore': lambda a, d: a.restore(d)}
 def make_server(root=None, port=0):
     api = Api(root); token = secrets.token_urlsafe(16); page = PAGE.replace('__TOKEN__', token).encode('utf-8')
     class H(BaseHTTPRequestHandler):

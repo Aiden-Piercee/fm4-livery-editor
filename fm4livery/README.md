@@ -35,3 +35,7 @@ Cars with a baked race-livery texture (`nodamage.xds`) can be decorated in two w
 * **3D view** - lock to Left / Right / Front / Rear / Top (orthographic) and drag and drop images or SVGs onto the car. They are baked through the car's UV map, hidden surfaces excluded, onto every visible panel. "Send 3D decals to the editor" instead fits them into garage `.liv` layers (approximate).
 
 "Build texture files" writes the edited `nodamage.xds` / `nodamage_lod0.xds` (and a stored-entry copy of the car zip) into `fm4livery_exports/textures/<car>/`. Nothing is installed into the game; copy files in yourself with the game closed. Mip levels above 16 texels are regenerated; the tail tile is kept from the original.
+
+## Two sections
+- **In-game livery:** Image to livery, Import / export, Editor, Backups (the game's own livery layers).
+- **Texture studio:** Texture sheet and 3D decals (drag and drop onto the car's baked texture), plus a **Library**. *Save to library* keeps each edit per car; choose the active edit per car (or original) and *Apply to game* builds ONE combined pack from them (older per-car packs are absorbed and moved out). *Export STFS* wraps that pack for Xenia / modded consoles (stale signature; needs a retail FM4 DLC package as template). Nothing in the car zips is ever changed; originals are copied once to `fm4livery_backups/originals`.

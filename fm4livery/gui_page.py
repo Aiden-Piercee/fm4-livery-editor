@@ -21,6 +21,7 @@ button:hover{background:var(--accent)}button.sec{background:var(--panel2);border
 input[type=text],select{background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:7px;padding:7px 9px;font:inherit;width:100%}
 input[type=range]{width:100%}label{display:block;color:var(--mute);font-size:12px;margin:10px 0 4px}
 .row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}.row>*{flex:1;min-width:150px}
+.modes{display:flex;gap:8px;margin-bottom:10px}.modes button{background:var(--panel2);color:var(--mute);border:1px solid var(--line);font-weight:600}.modes button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
 .tabs{display:flex;gap:6px;margin-bottom:12px}.tabs button{background:var(--panel2);color:var(--mute);border:1px solid var(--line)}.tabs button.on{background:var(--accent2);color:#fff;border-color:var(--accent2)}
 .panels{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;margin-top:12px}
 .pv{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px}.pv img{width:100%;display:block;border-radius:5px;image-rendering:auto}
@@ -51,15 +52,17 @@ __DECALS_CSS__
   </div>
   <div class="card"><h2>Garage</h2>
    <table><thead><tr><th>Slot</th><th>Car</th><th>Livery</th></tr></thead><tbody id="garage"><tr><td colspan="3" class="note">no profile loaded</td></tr></tbody></table>
+   <label style="margin-top:10px">Car zip <span class="note">(only if the car isn't found automatically)</span></label><select id="zipSel"><option value="">automatic</option></select>
    <p class="note" id="garNote"></p></div>
  </div>
  <div class="col">
   <div class="card">
-   <div class="tabs"><button data-t="make" class="on">Image to livery</button><button data-t="share" >Import / export</button><button data-t="edit">Editor</button><button data-t="sheet">Texture sheet</button><button data-t="view">3D view</button><button data-t="bak">Backups</button></div>
+   <div class="modes"><button data-m="live" class="on" title="Paint the in-game livery editor layers: image to livery, import/export, editor, backups">In-game livery</button><button data-m="tex" title="Drag and drop images onto the car's baked texture, keep a library of edits and install them as a pack">Texture studio</button></div>
+   <div class="tabs"><button data-m="live" data-t="make" class="on">Image to livery</button><button data-m="live" data-t="share">Import / export</button><button data-m="live" data-t="edit">Editor</button><button data-m="live" data-t="bak">Backups</button><button data-m="tex" data-t="sheet" class="hide">Texture sheet</button><button data-m="tex" data-t="view" class="hide">3D decals</button><button data-m="tex" data-t="lib" class="hide">Library</button></div>
    <div id="t_make">
      <div class="note" id="selInfo">Pick a garage slot on the left.</div>
      <div class="row"><div><label>Image</label><input type="file" id="img" accept="image/*"></div>
-       <div><label>Car zip <span class="note">(only if the car isn't found automatically)</span></label><select id="zipSel"><option value="">automatic</option></select></div></div>
+       </div>
      <label>Panels</label><div id="panelBoxes">
        <label class="chk"><input type="checkbox" value="left" checked>left</label><label class="chk"><input type="checkbox" value="right" checked>right</label>
        <label class="chk"><input type="checkbox" value="front">front</label><label class="chk"><input type="checkbox" value="rear">rear</label>
@@ -107,7 +110,10 @@ function refreshActive(){const t=activeTab();if(t==='view')loadView();else if(t=
 function pick(id){const changed=sel!==id;sel=id;if(changed&&prevSlot!==id)lastPanels=null;document.querySelectorAll('#garage tr').forEach(t=>t.classList.toggle('sel',t.dataset.id==id));const r=rows.find(x=>x.garage_id==id);if(!r)return;
  $('#selInfo').innerHTML='Slot <b>'+r.garage_id+'</b> - '+(r.title||(r.car!=='?'?r.car:'car '+r.car_id))+(r.livery?'':' <span class="warn">(no livery yet - the garage database will be updated)</span>');
  const need=!r.livery;$('#closedBox').classList.toggle('hide',!need);$('#closedBox2').classList.toggle('hide',!need);if(changed)refreshActive()}
-document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));['make','share','edit','sheet','view','bak'].forEach(t=>$('#t_'+t).classList.toggle('hide',t!==b.dataset.t));if(b.dataset.t==='bak')loadBak();if(b.dataset.t==='view')loadView();if(b.dataset.t==='sheet')loadSheet();if(b.dataset.t==='edit')loadEdit()});
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));['make','share','edit','sheet','view','lib','bak'].forEach(t=>$('#t_'+t).classList.toggle('hide',t!==b.dataset.t));if(b.dataset.t==='bak')loadBak();if(b.dataset.t==='view')loadView();if(b.dataset.t==='sheet')loadSheet();if(b.dataset.t==='edit')loadEdit();if(b.dataset.t==='lib')D.libShow()});
+function setMode(m){document.querySelectorAll('.modes button').forEach(x=>x.classList.toggle('on',x.dataset.m===m));document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('hide',x.dataset.m!==m))}
+function goTab(t){const b=document.querySelector('.tabs button[data-t='+t+']');setMode(b.dataset.m);b.click()}
+document.querySelectorAll('.modes button').forEach(b=>b.onclick=()=>{setMode(b.dataset.m);const f=[...document.querySelectorAll('.tabs button')].find(x=>x.dataset.m===b.dataset.m);f.click()});
 $('#zipSel').addEventListener('change',()=>refreshActive());
 $('#shapes').oninput=e=>$('#shV').textContent=e.target.value;
 $('#btnFolder').onclick=()=>{$('#setupCard').classList.toggle('hide')};
@@ -125,7 +131,7 @@ $('#btnApply').onclick=async()=>{const btn=$('#btnApply');setBusy(true,btn,'Writ
 $('#btnOpenEd').onclick=async()=>{const btn=$('#btnOpenEd');if(!prevId)return log('run Preview first','warn');
  if(prevSlot!==sel)return log('this preview was made for another slot - run Preview again','warn');
  setBusy(true,btn,'Opening…');
- try{const r=await api('fitlayers',{id:prevId});document.querySelector('.tabs button[data-t=edit]').click();await E.importLayers(r.panels,$('#openHow').value)}
+ try{const r=await api('fitlayers',{id:prevId});goTab('edit');await E.importLayers(r.panels,$('#openHow').value)}
  catch(e){log('open in editor: '+e.message,'bad')}finally{setBusy(false,btn)}};
 $('#btnExp').onclick=async()=>{if(!sel)return log('pick a garage slot first','warn');try{const r=await api('export',{slot:sel});$('#expOut').textContent=r.path;log('exported to '+r.path,'ok')}catch(e){log('export: '+e.message,'bad')}};
 $('#btnImp').onclick=async()=>{const f=$('#impFile').files[0];if(!sel)return log('pick a garage slot first','warn');if(!f)return log('choose a .fm4livery file','warn');try{const r=await api('import',{slot:sel,file:await b64(f),game_closed:$('#closed2').checked});if(r.needs_confirm)log(r.message,'warn');else{r.messages.forEach(m=>log(m,'ok'));loadGarage()}}catch(e){log('import: '+e.message,'bad')}};

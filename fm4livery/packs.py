@@ -31,20 +31,24 @@ def _zip_stored(path, files):
     with zipfile.ZipFile(path, 'w', zipfile.ZIP_STORED) as z:
         for n, b in files.items():
             zi = zipfile.ZipInfo(n, (1980, 1, 1, 0, 0, 0)); zi.compress_type = zipfile.ZIP_STORED; z.writestr(zi, b)
-def build(out_dir, car, tex, pack_root=None, prio=PRIO, originals=None):
-    """tex {entry name: bytes}. Writes <out_dir>/<folder>/ and <out_dir>/<folder>.header; returns dict(folder, dir, header)."""
-    folder = folder_name(car); d = os.path.join(out_dir, folder); media = os.path.join(d, 'Media'); dz = os.path.join(media, 'DLCZips')
+def build(out_dir, cars, pack_root=None, prio=PRIO, originals=None, label='library'):
+    """cars {CAR: {entry name: bytes}}. One package holding one override zip per car.
+    Writes <out_dir>/<folder>/ and <out_dir>/<folder>.header; returns dict(folder, dir, header, zips, manifest)."""
+    folder = folder_name(label); d = os.path.join(out_dir, folder); media = os.path.join(d, 'Media'); dz = os.path.join(media, 'DLCZips')
     if os.path.isdir(d): shutil.rmtree(d)
     os.makedirs(dz); offer = '9%04d' % (int(folder[:6], 16) % 10000)
     open(os.path.join(media, offer + '.puboffer'), 'wb').write(b'\x20\x0d\x0a')
     open(os.path.join(dz, 'stringtables.xml'), 'w').write('<stringtables>\r\n</stringtables>\r\n')
-    zn = 'Tex%s_pri_%d.zip' % (car.replace('_', ''), prio); _zip_stored(os.path.join(dz, zn), tex)
-    open(os.path.join(dz, 'zipmount.xml'), 'w').write('<zipmounts>\r\n\t<zip Name="%s" Mount="game:\\Media\\Cars\\%s\\" AltRootPath="game:\\Media\\Cars\\%s\\" ShouldCache="0" />\r\n</zipmounts>\r\n' % (zn, car, car))
-    man = dict(tool='fm4livery', car=car, priority=prio, created=time.strftime('%Y-%m-%d %H:%M:%S'),
-               files={n: _sha(b) for n, b in tex.items()}, original_sha256=originals or {})
+    zips = []; lines = []
+    for car, tex in sorted(cars.items()):
+        zn = 'Tex%s_pri_%d.zip' % (car.replace('_', ''), prio); _zip_stored(os.path.join(dz, zn), tex); zips.append(zn)
+        lines.append('\t<zip Name="%s" Mount="game:\\Media\\Cars\\%s\\" AltRootPath="game:\\Media\\Cars\\%s\\" ShouldCache="0" />' % (zn, car, car))
+    open(os.path.join(dz, 'zipmount.xml'), 'w').write('<zipmounts>\r\n' + '\r\n'.join(lines) + '\r\n</zipmounts>\r\n')
+    man = dict(tool='fm4livery', kind='library', priority=prio, created=time.strftime('%Y-%m-%d %H:%M:%S'),
+               cars={c: dict(files={n: _sha(b) for n, b in t.items()}, original_sha256=(originals or {}).get(c, {})) for c, t in cars.items()})
     open(os.path.join(media, TAG), 'w').write(json.dumps(man, indent=1))
-    hp = os.path.join(out_dir, folder + '.header'); open(hp, 'wb').write(make_header(pack_root or '', folder, 'FM4 Livery Texture - ' + car))
-    return dict(folder=folder, dir=d, header=hp, zip=zn, manifest=man)
+    hp = os.path.join(out_dir, folder + '.header'); open(hp, 'wb').write(make_header(pack_root or '', folder, 'FM4 Livery Textures'))
+    return dict(folder=folder, dir=d, header=hp, zips=zips, manifest=man)
 def installed(pack_root):
     out = []
     if pack_root and os.path.isdir(pack_root):
@@ -65,8 +69,8 @@ def install(pack_root, built, backup_root):
     if os.path.isfile(hdest): parked.append(_park(hdest, backup_root, f + '.header'))
     shutil.copytree(built['dir'], dest); shutil.copyfile(built['header'], hdest)
     # verify
-    z = zipfile.ZipFile(os.path.join(dest, 'Media', 'DLCZips', built['zip']))
-    assert z.testzip() is None and os.path.getsize(hdest) >= 0x148
+    for zn in built['zips']: assert zipfile.ZipFile(os.path.join(dest, 'Media', 'DLCZips', zn)).testzip() is None
+    assert os.path.getsize(hdest) >= 0x148
     return dict(dest=dest, header=hdest, parked=parked)
 def uninstall(pack_root, folder, backup_root):
     """Restore = move the package + header out of the game (kept in backup_root, never deleted)."""
@@ -84,9 +88,21 @@ def save_originals(car, zip_path, names, backup_root):
         p = os.path.join(d, n + '.orig'); hashes[n] = _sha(b)
         if not os.path.exists(p): open(p, 'wb').write(b)
     return hashes
-def export_stfs(built, template, out_dir, car):
+def export_stfs(built, template, out_dir, car='library'):
     """Wrap a built pack as an STFS package (stale signature, see stfs.py). Verified by reading every file back."""
     from . import stfs
     os.makedirs(out_dir, exist_ok=True); out = os.path.join(out_dir, built['folder'])
-    info = stfs.build(template, built['dir'], out, name='FM4 Livery Texture - ' + car, desc='Baked livery texture override for ' + car)
+    info = stfs.build(template, built['dir'], out, name='FM4 Livery Textures', desc='Baked livery texture overrides')
     n = stfs.verify(out, built['dir']); info.update(path=out, verified_files=n); return info
+def legacy_entries(pack_root):
+    """packs written by older versions: one package per car (manifest has 'car', files in its single zip)"""
+    out = []
+    for p in installed(pack_root):
+        if p.get('car') and p.get('kind') != 'library':
+            dz = os.path.join(pack_root, p['folder'], 'Media', 'DLCZips'); tex = {}
+            for f in os.listdir(dz) if os.path.isdir(dz) else []:
+                if f.lower().endswith('.zip'):
+                    with zipfile.ZipFile(os.path.join(dz, f)) as z:
+                        for n in z.namelist(): tex[n] = z.read(n)
+            out.append(dict(folder=p['folder'], car=p['car'], created=p.get('created', ''), tex=tex))
+    return out
