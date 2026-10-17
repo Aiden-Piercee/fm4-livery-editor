@@ -61,7 +61,7 @@ def build(out_dir, cars, pack_root=None, prio=PRIO, originals=None, label='libra
             taken = CL.installed_car_ids([pack_root], exclude_dir=d_installed) if (pack_root and os.path.isdir(pack_root)) else {}
             if cl['car_id'] in taken: raise ValueError('car id %d is already used by installed package %s' % (cl['car_id'], taken[cl['car_id']]))
             dref, sref = refs[cl['media']]; st, rep = CL.make_sql(db, did, cl['car_id'], cl['media'], dref, sref, int(offer_hex, 16)); stmts += st; report[cl['media']] = rep
-            ctex = dict(cl['tex']); dov = CL.damage_overrides(roots or [pack_root], cl['donor'], d_installed) if (roots or pack_root) else {}
+            ctex = dict(cl['tex']); dov = CL.damage_overrides([r for r in list(roots or []) + [pack_root] if r], cl['donor'], d_installed)
             for k, v in dov.items():
                 if k not in ctex: ctex[k] = v
             if dov: report[cl['media']]['damage_overrides'] = sorted(dov)
