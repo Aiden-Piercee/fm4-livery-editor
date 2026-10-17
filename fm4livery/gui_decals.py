@@ -254,9 +254,16 @@ async function libShow(){try{const l=await api('liblist',sel?{slot:sel,carzip:$(
   $('#libNote').textContent=l.legacy.length?l.legacy.length+' pack(s) from an earlier version are installed; Apply will absorb them into the library and move them out of the game.':''}
  catch(e){$('#libList').textContent='';log('library: '+e.message,'bad')}}
 $('#libRefresh').onclick=libShow;
+function saveChoice(){return new Promise(res=>{const o=document.createElement('div');o.style.cssText='position:fixed;inset:0;background:#000a;z-index:99;display:flex;align-items:center;justify-content:center;padding:16px';
+ const b=document.createElement('div');b.style.cssText='background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px 22px;max-width:560px';
+ b.innerHTML='<h3 style="margin:0 0 8px">This is an original game car</h3><p class="note">What should happen to this edit?</p><p><b>Overwrite the original</b> &mdash; the car keeps its name and slot, but its livery texture is replaced in game. The tool keeps a copy of the original texture and every replaced pack in its backups folder, but it can only try: <b>always keep your own backup of your game files</b>.</p><p><b>Create a unique clone</b> &mdash; a separate new car (own name, own database row) is added next to the original, which stays untouched. Costs about 10 MB per clone.</p>';
+ const mk=(t,v,c)=>{const x=document.createElement('button');x.textContent=t;if(c)x.className=c;x.style.marginRight='8px';x.onclick=()=>{o.remove();res(v)};return x};
+ const row=document.createElement('div');row.append(mk('Create unique clone','clone'),mk('Overwrite original','over','sec'),mk('Cancel',null,'sec'));b.append(row);o.append(b);document.body.append(o)})}
 $('#shSave').onclick=async()=>{if(!sel)return log('pick a garage slot first','warn');if(!A.hasAtlas)return log('this car has no baked-livery texture','warn');
  if(!A.dec3.length&&!A.sheet.length)return log('nothing placed yet','warn');const btn=$('#shSave');setBusy(true,btn,'Saving…');
- try{const c=compose(2048);const r=await api('libsave',{slot:sel,carzip:$('#zipSel').value,overlay:await b64(await blobOf(c.overlay)),name:$('#shName').value,activate:true,clone:$('#shClone').checked});
+ let asClone=$('#shClone').checked;
+ if(!asClone){const ch=await saveChoice();if(!ch){setBusy(false,btn);return}if(ch==='clone'){asClone=true;$('#shClone').checked=true;if(!$('#shName').value.trim()){const nm=prompt('Name for the new car (shown in game):','');if(!nm||!nm.trim()){log('give the new car a name first','warn');$('#shClone').checked=false;setBusy(false,btn);return}$('#shName').value=nm.trim()}}}
+ try{const c=compose(2048);const r=await api('libsave',{slot:sel,carzip:$('#zipSel').value,overlay:await b64(await blobOf(c.overlay)),name:$('#shName').value,activate:true,clone:asClone});
   log('saved "'+r.entry.name+'" '+(r.entry.clone?'as a NEW car (id '+r.entry.clone.car_id+', copy of '+r.entry.clone.donor+')':'for '+r.entry.car)+' to the library (active). Open the Library tab and press Apply to put it in the game.','ok');$('#shStatus').textContent='saved to library';$('#shName').value=''}
  catch(e){log('save: '+e.message,'bad')}finally{setBusy(false,btn)}};
 $('#libApply').onclick=async()=>{if(!await askYes('Is the game fully closed? This rebuilds one texture pack from the active library edits and installs it (earlier packs are moved to the backups folder; original car files are not changed).'))return;
