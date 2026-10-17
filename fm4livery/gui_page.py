@@ -35,12 +35,12 @@ __VIEWER_CSS__
 __DECALS_CSS__
 @media(max-width:900px){main{grid-template-columns:1fr;height:auto}}
 </style></head><body>
-<header><h1>FM4 Livery Tool</h1><span id="chipProfile" class="chip">looking for your game...</span><span class="sp"></span><span class="note" id="ver"></span><button class="sec" id="btnFolder">Change folder</button></header>
+<header><h1>FM4 Livery Tool</h1><span id="chipProfile" class="chip">looking for your game...</span><span class="sp"></span><span class="note" id="ver"></span><button class="sec" id="btnHelp" title="What the tool needs">Prerequisites</button> <button class="sec" id="btnFolder">Change folder</button></header>
 <main>
  <div class="col">
   <div class="card hide" id="setupCard">
    <h2>Game folder</h2>
-   <p class="note" id="setupMsg">Choose the folder that contains your game or recomp files (the one with <code>default.pe</code> and your profile).</p>
+   <p class="note" id="setupMsg">Choose the folder with your extracted game files (it contains <code>Media\\cars</code>) and/or your recomp folder. <code>default.pe</code> and a profile are only needed for the In-game livery section.</p>
    <div class="row"><div><input type="text" id="rootIn" placeholder="C:\path\to\your\recomp"></div><div style="flex:0 0 auto"><button class="sec hide" id="btnPick">Browse…</button> <button id="btnFind">Find</button></div></div>
    <details style="margin-top:10px" id="advBox"><summary class="note" style="cursor:pointer">Files in different places? (optional)</summary>
     <label>default.pe <span class="note">(your own game file; leave blank to search the folder above)</span></label>
@@ -50,8 +50,9 @@ __DECALS_CSS__
    </details>
    <div id="profPick" class="hide"><label>Profile</label><select id="profSel"></select></div>
   </div>
-  <div class="card"><h2>Garage</h2>
-   <table><thead><tr><th>Slot</th><th>Car</th><th>Livery</th></tr></thead><tbody id="garage"><tr><td colspan="3" class="note">no profile loaded</td></tr></tbody></table>
+  <div class="card"><div class="tabs" style="margin-bottom:8px"><button id="lsGarage" class="on">Garage</button><button id="lsCars">All cars</button></div>
+   <div id="garBox"><table><thead><tr><th>Slot</th><th>Car</th><th>Livery</th></tr></thead><tbody id="garage"><tr><td colspan="3" class="note">no profile loaded</td></tr></tbody></table></div>
+   <div id="carBox" class="hide"><input id="carFind" placeholder="search cars..." style="margin-bottom:6px"><div style="max-height:62vh;overflow:auto"><table><tbody id="carList"><tr><td class="note">...</td></tr></tbody></table></div></div>
    <label style="margin-top:10px">Car zip <span class="note">(only if the car isn't found automatically)</span></label><select id="zipSel"><option value="">automatic</option></select>
    <p class="note" id="garNote"></p></div>
  </div>
@@ -60,7 +61,7 @@ __DECALS_CSS__
    <div class="modes"><button data-m="live" class="on" title="Paint the in-game livery editor layers: image to livery, import/export, editor, backups">In-game livery</button><button data-m="tex" title="Drag and drop images onto the car's baked texture, keep a library of edits and install them as a pack">Texture studio</button></div>
    <div class="tabs"><button data-m="live" data-t="make" class="on">Image to livery</button><button data-m="live" data-t="share">Import / export</button><button data-m="live" data-t="edit">Editor</button><button data-m="live" data-t="bak">Backups</button><button data-m="tex" data-t="sheet" class="hide">Texture sheet</button><button data-m="tex" data-t="view" class="hide">3D decals</button><button data-m="tex" data-t="lib" class="hide">Library</button></div>
    <div id="t_make">
-     <div class="note" id="selInfo">Pick a garage slot on the left.</div>
+     <div class="note" id="selInfo">Pick a car on the left.</div>
      <div class="row"><div><label>Image</label><input type="file" id="img" accept="image/*"></div>
        </div>
      <label>Panels</label><div id="panelBoxes">
@@ -94,20 +95,35 @@ function askYes(msg){return new Promise(res=>{const o=document.createElement('di
  const b=document.createElement('div');b.style.cssText='background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px 20px;max-width:380px';b.innerHTML='<p style="margin:0 0 14px"></p>';b.firstChild.textContent=msg;
  const y=document.createElement('button');y.textContent='Yes';const n=document.createElement('button');n.className='sec';n.textContent='No';n.style.marginLeft='8px';const done=v=>{o.remove();res(v)};y.onclick=()=>done(true);n.onclick=()=>done(false);
  b.append(y,n);o.append(b);document.body.append(o);y.focus()})}
+async function showIntro(force){try{const r=await api('prereqs');if(r.hide&&!force)return;const o=document.createElement('div');o.style.cssText='position:fixed;inset:0;background:#000a;z-index:98;display:flex;align-items:center;justify-content:center;padding:16px';
+ const b=document.createElement('div');b.style.cssText='background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px 22px;max-width:640px;max-height:90vh;overflow:auto';
+ let h='<h2 style="margin:0 0 6px">You should know</h2><p class="note" style="margin:0 0 12px">This tool works on files you already own. It never contains game files. Here is what each part needs, and what it found:</p><table style="width:100%">';
+ r.items.forEach(i=>{h+='<tr><td style="width:26px;vertical-align:top;font-size:16px;color:var('+(i.ok?'--ok,#4c9':'--warn,#e90')+')">'+(i.ok?'&#10003;':'&#9679;')+'</td><td><b>'+i.label+'</b><div class="note">'+i.need+'</div><div class="note" style="opacity:.75">'+(i.detail||'')+'</div></td></tr>'});
+ h+='</table><p class="note" style="margin-top:12px"><b>Textures are applied as an extra pack</b> in your game; the original car files are never changed, and every change can be undone from the Library tab. Packs are untested in game until you look at the car. Hardware (modded console) use needs the exported package re-signed with your own tools.</p><label class="chk"><input type="checkbox" id="introHide"> Don\'t show this again</label><p style="margin:12px 0 0"><button id="introOk">Got it</button></p>';
+ b.innerHTML=h;o.append(b);document.body.append(o);$('#introHide').checked=!!r.hide;$('#introOk').onclick=async()=>{try{await api('prefs',{hide_intro:$('#introHide').checked})}catch(e){}o.remove()}}catch(e){log('intro: '+e.message,'warn')}}
 function log(m,c){const e=$('#log');const d=document.createElement('div');d.textContent=m;if(c)d.className=c;e.appendChild(d);e.scrollTop=e.scrollHeight}
 async function api(n,d){const r=await fetch('/api/'+n,{method:'POST',headers:{'X-Token':TOKEN,'Content-Type':'application/json'},body:JSON.stringify(d||{})});const j=await r.json();if(j.error)throw new Error(j.error);return j}
 function setBusy(b,btn,txt){busy=b;if(btn){btn.disabled=b;if(b){btn.dataset.t=btn.innerHTML;btn.innerHTML='<span class="spin"></span>'+txt}else if(btn.dataset.t)btn.innerHTML=btn.dataset.t}}
 function b64(file){return new Promise((res,rej)=>{const f=new FileReader();f.onload=()=>res(f.result.split(',')[1]);f.onerror=rej;f.readAsDataURL(file)})}
 function showState(s){const ch=$('#chipProfile');$('#ver').textContent='v'+(s.version||'');
- if(s.ok){if(s.root&&!$('#rootIn').value)$('#rootIn').value=s.root;$('#peIn').value=s.pe||'';$('#mediaIn').value=s.media||'';ch.textContent='profile '+s.xuid;ch.className='chip ok';$('#setupCard').classList.add('hide');const p=$('#profSel');p.innerHTML='';(s.profiles||[]).forEach(x=>{const o=document.createElement('option');o.value=x;o.textContent=x;if(x===s.profile)o.selected=true;p.appendChild(o)});$('#profPick').classList.toggle('hide',(s.profiles||[]).length<2);
-  $('#garNote').textContent=s.cars_known?'':'Car names unavailable (game database or string tables not found) - cars show their ID.';loadGarage()}
+ if(s.ok){if(s.root&&!$('#rootIn').value)$('#rootIn').value=s.root;$('#peIn').value=s.pe||'';$('#mediaIn').value=s.media||'';ch.textContent=s.cars_only?'cars only (no profile)':'profile '+s.xuid;ch.className='chip ok';$('#setupCard').classList.add('hide');const p=$('#profSel');p.innerHTML='';(s.profiles||[]).forEach(x=>{const o=document.createElement('option');o.value=x;o.textContent=x;if(x===s.profile)o.selected=true;p.appendChild(o)});$('#profPick').classList.toggle('hide',(s.profiles||[]).length<2);
+  $('#garNote').textContent=s.cars_known?'':'Car names unavailable (game database or string tables not found) - cars show their ID.';if(s.cars_only){carsOnly(true)}else{carsOnly(false);loadGarage()}loadCars()}
  else{ch.textContent='game files not found';ch.className='chip bad';$('#setupCard').classList.remove('hide');$('#advBox').open=true;$('#setupMsg').textContent=(s.error||'')+' - if your files are in different places, fill in the boxes below.';}}
 async function loadGarage(){try{const g=await api('garage');rows=g.rows;const z=$('#zipSel');z.innerHTML='<option value="">automatic</option>';g.carzips.forEach(p=>{const o=document.createElement('option');o.value=p;o.textContent=p.split(/[\\/]/).pop();z.appendChild(o)});
  const tb=$('#garage');tb.innerHTML='';rows.forEach(r=>{const tr=document.createElement('tr');tr.innerHTML='<td>'+r.garage_id+'</td><td title="'+(r.car!=='?'?r.car:'')+' (car id '+r.car_id+')">'+(r.title||(r.car!=='?'?r.car:'car '+r.car_id))+'</td><td><span class="tag '+(r.livery?'has':'')+'">'+(r.livery?(r.file?'livery':'assigned'):'none')+'</span></td>';tr.onclick=()=>pick(r.garage_id);tr.dataset.id=r.garage_id;tb.appendChild(tr)});
  if(!g.signature)log('warning: PlayerDatabase signature did not verify','warn');if(sel)pick(sel)}catch(e){log('garage: '+e.message,'bad')}}
+let carRows=[];
+function carsOnly(on){const live=document.querySelector('.modes button[data-m=live]');live.disabled=on;live.title=on?'Needs your profile and default.pe - set the folder that holds them (Change folder)':'Paint the in-game livery editor layers: image to livery, import/export, editor, backups';
+ $('#lsGarage').disabled=on;if(on){listMode('cars');setMode('tex');goTab('sheet')}}
+function listMode(m){$('#lsGarage').classList.toggle('on',m==='garage');$('#lsCars').classList.toggle('on',m==='cars');$('#garBox').classList.toggle('hide',m!=='garage');$('#carBox').classList.toggle('hide',m!=='cars')}
+async function loadCars(){try{const r=await api('cars');carRows=r.rows;const z=$('#zipSel');if(z.options.length<2)carRows.forEach(c=>{const o=document.createElement('option');o.value=c.zip;o.textContent=c.car+'.zip';z.appendChild(o)});renderCars()}catch(e){$('#carList').innerHTML='<tr><td class="note">'+e.message+'</td></tr>'}}
+function renderCars(){const q=($('#carFind').value||'').toLowerCase();const tb=$('#carList');tb.innerHTML='';carRows.filter(c=>!q||(c.title+' '+c.car).toLowerCase().includes(q)).slice(0,600).forEach(c=>{const tr=document.createElement('tr');tr.dataset.id=c.key;tr.innerHTML='<td title="'+c.car+'">'+(c.title||c.car)+'</td>';tr.onclick=()=>pick(c.key);if(sel===c.key)tr.classList.add('sel');tb.appendChild(tr)})}
+$('#carFind').oninput=renderCars;$('#lsGarage').onclick=()=>listMode('garage');$('#lsCars').onclick=()=>listMode('cars');
 function activeTab(){const b=document.querySelector('.tabs button.on');return b?b.dataset.t:''}
 function refreshActive(){const t=activeTab();if(t==='view')loadView();else if(t==='sheet')loadSheet();else if(t==='edit')loadEdit()}
-function pick(id){const changed=sel!==id;sel=id;if(changed&&prevSlot!==id)lastPanels=null;document.querySelectorAll('#garage tr').forEach(t=>t.classList.toggle('sel',t.dataset.id==id));const r=rows.find(x=>x.garage_id==id);if(!r)return;
+function pick(id){const changed=sel!==id;sel=id;if(changed&&prevSlot!==id)lastPanels=null;document.querySelectorAll('#garage tr,#carList tr').forEach(t=>t.classList.toggle('sel',t.dataset.id==id));
+ if(typeof id==='string'&&id.startsWith('car:')){const c=carRows.find(x=>x.key===id);if(!c)return;$('#selInfo').innerHTML='Car <b>'+(c.title||c.car)+'</b> <span class="note">('+c.car+')</span>';if(changed)refreshActive();return}
+ const r=rows.find(x=>x.garage_id==id);if(!r)return;
  $('#selInfo').innerHTML='Slot <b>'+r.garage_id+'</b> - '+(r.title||(r.car!=='?'?r.car:'car '+r.car_id))+(r.livery?'':' <span class="warn">(no livery yet - the garage database will be updated)</span>');
  const need=!r.livery;$('#closedBox').classList.toggle('hide',!need);$('#closedBox2').classList.toggle('hide',!need);if(changed)refreshActive()}
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));['make','share','edit','sheet','view','lib','bak'].forEach(t=>$('#t_'+t).classList.toggle('hide',t!==b.dataset.t));if(b.dataset.t==='bak')loadBak();if(b.dataset.t==='view')loadView();if(b.dataset.t==='sheet')loadSheet();if(b.dataset.t==='edit')loadEdit();if(b.dataset.t==='lib')D.libShow()});
@@ -116,6 +132,7 @@ function goTab(t){const b=document.querySelector('.tabs button[data-t='+t+']');s
 document.querySelectorAll('.modes button').forEach(b=>b.onclick=()=>{setMode(b.dataset.m);const f=[...document.querySelectorAll('.tabs button')].find(x=>x.dataset.m===b.dataset.m);f.click()});
 $('#zipSel').addEventListener('change',()=>refreshActive());
 $('#shapes').oninput=e=>$('#shV').textContent=e.target.value;
+$('#btnHelp').onclick=()=>showIntro(true);
 $('#btnFolder').onclick=()=>{$('#setupCard').classList.toggle('hide')};
 $('#btnFind').onclick=async()=>{try{showState(await api('setup',{root:$('#rootIn').value.trim(),pe:$('#peIn').value,media:$('#mediaIn').value,profile:$('#profSel').value||''}))}catch(e){showState({ok:false,error:e.message});log(e.message,'bad')}};
 $('#profSel').onchange=async()=>{try{showState(await api('setup',{root:$('#rootIn').value.trim()||undefined,pe:$('#peIn').value,media:$('#mediaIn').value,profile:$('#profSel').value}))}catch(e){log(e.message,'bad')}};
@@ -150,7 +167,7 @@ window.addEventListener('pywebviewready',()=>{if(window.pywebview&&window.pywebv
 $('#btnPickPe').onclick=async()=>{const p=await window.pywebview.api.pick_file();if(p)$('#peIn').value=p};
 $('#btnPickMedia').onclick=async()=>{const p=await window.pywebview.api.pick_folder();if(p)$('#mediaIn').value=p};
 $('#btnPick').onclick=async()=>{const p=await window.pywebview.api.pick_folder();if(p){$('#rootIn').value=p;$('#btnFind').click()}};
-(async()=>{try{showState(await api('state'))}catch(e){log(e.message,'bad')}})();
+(async()=>{try{showState(await api('state'))}catch(e){log(e.message,'bad')}showIntro(false)})();
 </script></body></html>'''
 
 from . import gui_viewer as _v, gui_editor as _e, gui_decals as _d

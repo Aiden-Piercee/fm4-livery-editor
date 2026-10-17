@@ -12,6 +12,30 @@ class Api:
     def _load_settings(self):
         try: return json.load(open(self.SETTINGS))
         except Exception: return {}
+    def _save_settings(self, **kw):
+        st = self._load_settings(); st.update(kw)
+        try: json.dump(st, open(self.SETTINGS, 'w'))
+        except OSError: pass
+    def prefs(self, d=None):
+        d = d or {}
+        if 'hide_intro' in d: self._save_settings(hide_intro=bool(d['hide_intro']))
+        return dict(hide_intro=bool(self._load_settings().get('hide_intro')))
+    def cars(self, d=None):
+        c = self.need()
+        if not c['media']: raise app.AppError('no Media folder set - the car list needs the folder with cars\\*.zip')
+        return dict(rows=app.list_cars(c), names=bool(c['names']))
+    def prereqs(self, d=None):
+        c = self.c; out = []
+        def add(key, label, ok, detail, need): out.append(dict(key=key, label=label, ok=bool(ok), detail=detail, need=need))
+        m = c['media'] if c else None; nz = len(app.list_car_zips(c)) if c else 0
+        add('media', 'Media folder with car zips', m and nz, (m + ' (%d cars)' % nz) if m and nz else 'not found', 'Texture studio and the 3D view (extracted game files: the Media folder that contains cars\\)')
+        add('gamedb', 'Game database', m and os.path.isfile(os.path.join(m, 'db', 'gamedb.slt')), 'Media\\db\\gamedb.slt', 'Real car names and ids (optional - without it cars show their file name)')
+        add('strings', 'String tables', m and os.path.isfile(os.path.join(m, 'StringTables', 'EN.zip')), 'Media\\StringTables\\EN.zip', 'Car names in English (optional)')
+        add('profile', 'Profile + default.pe', c and c['profile'] and c['pe_path'], (c['profile'] if c and c['profile'] else 'not found'), 'In-game livery section only (garage list, saving liveries to a slot)')
+        pr = packs.find_pack_root(c['root'], fast=True) if c else None
+        add('packroot', 'Package folder (4D530910\\00000002)', pr, pr or 'not found under the chosen folder', 'Apply to game (install the texture pack) - your recomp folder has it')
+        add('template', 'Retail FM4 DLC package', None, 'any official FM4 DLC STFS file; searched when you press Export STFS', 'Export STFS only (header/thumbnail template)')
+        return dict(items=out, hide=self.prefs()['hide_intro'])
     def setup(self, root, profile, quiet=False, pe=None, media=None):
         st = self._load_settings()
         if root is None or root == '':
@@ -22,8 +46,7 @@ class Api:
             if pe and not os.path.isfile(pe): raise app.AppError('that default.pe path does not exist: ' + pe)
             if media and not os.path.isdir(media): raise app.AppError('that Media folder does not exist: ' + media)
             self.c = app.context(root, pe, profile or None, media); self.err = None
-            try: json.dump(dict(root=root, pe=pe or '', media=media or ''), open(self.SETTINGS, 'w'))
-            except OSError: pass
+            self._save_settings(root=root, pe=pe or '', media=media or '')
         except Exception as e:
             self.c = None; self.err = str(e)
             if not quiet: raise
@@ -31,7 +54,7 @@ class Api:
     def state(self):
         c = self.c
         if not c: return dict(ok=False, error=self.err, version=__version__)
-        return dict(ok=True, version=__version__, root=c['root'], profile=c['profile'], xuid=c['xuid'], profiles=c['profiles'], media=c['media'], pe=c['pe_path'], cars_known=len(c['names']))
+        return dict(ok=True, version=__version__, cars_only=not (c['profile'] and c['pe']), root=c['root'], profile=c['profile'], xuid=c['xuid'], profiles=c['profiles'], media=c['media'], pe=c['pe_path'], cars_known=len(c['names']))
     def need(self):
         if not self.c: raise app.AppError(self.err or 'game folder not set')
         return self.c
@@ -48,11 +71,9 @@ class Api:
         return dict(id=pid, total_layers=sum(len(f['layers']) for f in fits.values()),
                     panels={p: dict(png=base64.b64encode(app.render_preview(f, mk[p]['sil'])).decode(), tex=base64.b64encode(app.render_rgba(f, mk[p]['sil'])).decode(), layers=len(f['layers'])) for p, f in fits.items()})
     def model(self, d):
-        c = self.need(); slot = int(d['slot']); g = app.load_garage(c); row = app.car_row(g, c, slot)
-        return app.model_for_zip(app.car_zip_for(c, row, d.get('carzip') or None))
+        c = self.need(); return app.model_for_zip(self._car(c, d)[0])
     def bake(self, d):
-        c = self.need(); slot = int(d['slot']); g = app.load_garage(c); row = app.car_row(g, c, slot)
-        zp = app.car_zip_for(c, row, d.get('carzip') or None)
+        c = self.need(); zp = self._car(c, d)[0]
         return app.bake_atlas(zp, base64.b64decode(d['overlay']), os.path.join(self.exports, 'textures'), bool(d.get('zip', True)))
     def _pk(self, c):
         pr = packs.find_pack_root(c['root'])
@@ -62,8 +83,7 @@ class Api:
         from . import library
         return library.Library(c['root'])
     def _car(self, c, d):
-        g = app.load_garage(c); row = app.car_row(g, c, int(d['slot'])); zp = app.car_zip_for(c, row, d.get('carzip') or None)
-        return zp, os.path.splitext(os.path.basename(zp))[0]
+        zp, car, _ = app.resolve(c, d['slot'], d.get('carzip') or None); return zp, car
     def lib_list(self, d=None):
         c = self.need(); lib = self._lib(c); d = d or {}; car = None
         if d.get('slot') is not None: car = self._car(c, d)[1]
@@ -115,11 +135,10 @@ class Api:
         b = packs.build(os.path.join(self.exports, 'packs'), tex, pr, originals=orig)
         info = packs.export_stfs(b, tpl, os.path.join(self.exports, 'stfs')); info['template'] = tpl; info['cars'] = sorted(tex); return info
     def savefile(self, d):
-        c = self.need(); slot = int(d['slot']); g = app.load_garage(c); row = app.car_row(g, c, slot)
-        zp = app.car_zip_for(c, row, d.get('carzip') or None); dd = os.path.join(self.exports, 'templates', os.path.splitext(os.path.basename(zp))[0]); os.makedirs(dd, exist_ok=True)
+        c = self.need(); zp = self._car(c, d)[0]; dd = os.path.join(self.exports, 'templates', os.path.splitext(os.path.basename(zp))[0]); os.makedirs(dd, exist_ok=True)
         name = re.sub(r'[^A-Za-z0-9_.-]', '_', d['name'])[:60]; open(os.path.join(dd, name), 'wb').write(base64.b64decode(d['data'])); return dict(dir=dd)
     def decalfit(self, d):
-        c = self.need(); slot = int(d['slot']); g = app.load_garage(c); row = app.car_row(g, c, slot)
+        c = self.need(); app.need_profile(c); slot = int(d['slot']); g = app.load_garage(c); row = app.car_row(g, c, slot)
         zp = app.car_zip_for(c, row, d.get('carzip') or None); mk = masks.masks_from_zip(zp)
         imgs = {p: Image.open(io.BytesIO(base64.b64decode(b))).convert('RGBA') for p, b in d['panels'].items()}
         fits = app.fit_decal_panels(imgs, mk, int(d.get('shapes', 400)), float(d.get('res', 2.0)))
@@ -189,7 +208,7 @@ class Api:
     def backups(self): c = self.need(); return dict(files=[os.path.relpath(p, c['profile']) for p in app.backups(c)])
     def restore(self, d): c = self.need(); return dict(restored=os.path.relpath(app.restore(c, os.path.join(c['profile'], d['file'])), c['profile']))
 ROUTES = {'setup': lambda a, d: a.setup(d.get('root') or '', d.get('profile'), pe=d.get('pe'), media=d.get('media')), 'state': lambda a, d: a.state(), 'garage': lambda a, d: a.garage(), 'preview': lambda a, d: a.preview(d), 'model': lambda a, d: a.model(d), 'slot': lambda a, d: a.slot(d), 'savelayers': lambda a, d: a.savelayers(d), 'vinylcat': lambda a, d: a.vinylcat(d), 'fitlayers': lambda a, d: a.fitlayers(d), 'vinylshapes': lambda a, d: a.vinylshapes(d),
-          'apply': lambda a, d: a.apply(d), 'bake': lambda a, d: a.bake(d), 'savefile': lambda a, d: a.savefile(d), 'stfs': lambda a, d: a.stfs_export(d), 'liblist': lambda a, d: a.lib_list(d), 'libsave': lambda a, d: a.lib_save(d), 'libset': lambda a, d: a.lib_set(d), 'libapply': lambda a, d: a.lib_apply(d), 'decalfit': lambda a, d: a.decalfit(d), 'export': lambda a, d: a.export(d), 'import': lambda a, d: a.import_(d), 'backups': lambda a, d: a.backups(), 'restore': lambda a, d: a.restore(d)}
+          'apply': lambda a, d: a.apply(d), 'bake': lambda a, d: a.bake(d), 'savefile': lambda a, d: a.savefile(d), 'stfs': lambda a, d: a.stfs_export(d), 'liblist': lambda a, d: a.lib_list(d), 'cars': lambda a, d: a.cars(d), 'prereqs': lambda a, d: a.prereqs(d), 'prefs': lambda a, d: a.prefs(d), 'libsave': lambda a, d: a.lib_save(d), 'libset': lambda a, d: a.lib_set(d), 'libapply': lambda a, d: a.lib_apply(d), 'decalfit': lambda a, d: a.decalfit(d), 'export': lambda a, d: a.export(d), 'import': lambda a, d: a.import_(d), 'backups': lambda a, d: a.backups(), 'restore': lambda a, d: a.restore(d)}
 def make_server(root=None, port=0):
     api = Api(root); token = secrets.token_urlsafe(16); page = PAGE.replace('__TOKEN__', token).encode('utf-8')
     class H(BaseHTTPRequestHandler):

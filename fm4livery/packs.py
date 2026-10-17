@@ -6,9 +6,12 @@ PRIO = 27300            # above widebody carbins (27200); brake-options strings 
 TAG = 'fm4livery.json'
 def _sha(b): return hashlib.sha256(b).hexdigest()
 def folder_name(car): return (hashlib.sha1(('fm4livery-tex-' + car).encode()).hexdigest().upper() + '4D')
-def find_pack_root(root, depth=8):
-    """.../4D530910/00000002 (the folder holding extracted DLC packages)"""
+def find_pack_root(root, depth=8, fast=False):
+    """.../4D530910/00000002 (the folder holding extracted DLC packages). fast: only the usual recomp location (no tree walk)."""
     root = os.path.abspath(root); base = root.count(os.sep)
+    usual = os.path.join(root, '.local', 'user', '0000000000000000', '4D530910', '00000002')
+    if os.path.isdir(usual): return usual
+    if fast: return None
     for d, dirs, _ in os.walk(root):
         if d.count(os.sep) - base > depth: dirs[:] = []; continue
         if os.path.basename(d) == '00000002' and os.path.basename(os.path.dirname(d)).upper() == '4D530910' and 'Headers' not in d.split(os.sep): return d

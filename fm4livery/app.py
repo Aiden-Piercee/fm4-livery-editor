@@ -6,18 +6,40 @@ from . import crypto, design, detect, garage, masks, share
 class AppError(Exception): pass
 DEFAULT_PANELS = ('left', 'right')
 def context(root=None, pe=None, profile=None, media=None):
+    """Everything optional except that SOMETHING usable must be found: a Media folder (cars mode: texture studio only) or a profile + default.pe (in-game livery)."""
     root = root or os.getcwd(); pe_path = pe or detect.find_pe(root); media = media or detect.find_media(root)
-    if not pe_path: raise AppError('default.pe not found - choose the folder that contains your game / recomp files')
-    profs = [profile] if profile else detect.find_profiles(root)
-    if not profs: raise AppError('no profile with a PlayerDatabase found under that folder')
+    profs = [profile] if profile else (detect.find_profiles(root) if pe_path else [])
     if len(profs) > 1 and not profile: raise AppError('several profiles found: ' + ' | '.join(profs))
+    if not media and not (pe_path and profs):
+        raise AppError('nothing usable found - choose the folder with your extracted game files (the Media folder with the cars folder), or your recomp folder')
     names = detect.car_table(media, [root]) if media else {}
     try: titles = detect.car_titles(media, [root]) if media else {}
     except Exception: titles = {}
-    return dict(root=root, pe=open(pe_path, 'rb').read(), pe_path=pe_path, media=media, profile=profs[0], profiles=profs,
-                xuid=os.path.basename(profs[0].rstrip('/\\')), names=names, titles=titles)
+    prof = profs[0] if profs else None
+    return dict(root=root, pe=open(pe_path, 'rb').read() if pe_path else None, pe_path=pe_path, media=media, profile=prof, profiles=profs,
+                xuid=os.path.basename(prof.rstrip('/\\')) if prof else None, names=names, titles=titles)
+def need_profile(c):
+    if not c.get('profile') or not c.get('pe'): raise AppError('this needs your profile and default.pe (In-game livery section). Cars-only mode has neither - set the folder that holds them.')
+def list_cars(c):
+    """every car zip in Media/cars with its name (no profile needed): [{car, car_id, title, zip}]"""
+    rev = {}
+    for i, m in c['names'].items(): rev.setdefault(m, i)
+    out = []
+    for zp in list_car_zips(c):
+        m = os.path.splitext(os.path.basename(zp))[0]; i = rev.get(m)
+        out.append(dict(key='car:' + m, car=m, car_id=i, title=c['titles'].get(i, '') if i is not None else '', zip=zp))
+    return out
+def resolve(c, slot, carzip=None):
+    """(zip path, car media name, garage row or None) from a garage slot id or a 'car:<MediaName>' key"""
+    s = str(slot)
+    if s.startswith('car:'):
+        name = s[4:]; zp = carzip or (detect.car_zip(c['media'], name) if c['media'] else None)
+        if not zp: raise AppError('cannot find the car zip for ' + name)
+        return zp, os.path.splitext(os.path.basename(zp))[0], None
+    need_profile(c); g = load_garage(c); row = car_row(g, c, int(s)); zp = car_zip_for(c, row, carzip)
+    return zp, os.path.splitext(os.path.basename(zp))[0], row
 def liv_path(c, slot): return os.path.join(c['profile'], 'Liveries', '%d.liv' % slot)
-def load_garage(c): return garage.load(c['profile'], c['pe'])
+def load_garage(c): need_profile(c); return garage.load(c['profile'], c['pe'])
 def car_row(g, c, slot):
     for r in garage.rows(g, c['names'], c.get('titles')):
         if r['garage_id'] == slot: return r
