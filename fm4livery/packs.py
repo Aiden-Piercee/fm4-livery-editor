@@ -61,7 +61,9 @@ def build(out_dir, cars, pack_root=None, prio=PRIO, originals=None, label='libra
             taken = CL.installed_car_ids([pack_root], exclude_dir=d_installed) if (pack_root and os.path.isdir(pack_root)) else {}
             if cl['car_id'] in taken: raise ValueError('car id %d is already used by installed package %s' % (cl['car_id'], taken[cl['car_id']]))
             dref, sref = refs[cl['media']]; st, rep = CL.make_sql(db, did, cl['car_id'], cl['media'], dref, sref, int(offer_hex, 16)); stmts += st; report[cl['media']] = rep
-            entries += CL.car_entries(cl['donor_zip'], cl['media'], cl['tex'])
+            ctex = dict(cl['tex']); da = CL.damage_attribs(roots or [pack_root], cl['donor'], d_installed) if (roots or pack_root) else None
+            if da and 'carattribs.xml' not in ctex: ctex['carattribs.xml'] = da; report[cl['media']]['damage_attribs'] = 'from installed override pack'
+            entries += CL.car_entries(cl['donor_zip'], cl['media'], ctex)
         entries.append(CL.stored('media/db/patch/%d000_merge.slt' % offer, CL.merge_slt(gdb, os.path.join(tempfile.gettempdir(), 'fm4livery_merge_tmp.slt'), offer, offer_hex)))
         for i, ch in enumerate(CL.chunk_sql(stmts), 1): entries.append(CL.stored('media/db/patch/%d%03d_execute.sql' % (offer, i), ch.encode('ascii')))
         CL.write_zip(os.path.join(dz, '%d_pri_65.zip' % offer), entries); db.close(); os.remove(os.path.join(tempfile.gettempdir(), 'fm4livery_merge_tmp.slt'))

@@ -119,6 +119,21 @@ def raw_entries(zip_path):
             if i.filename.endswith('/'): continue
             f.seek(i.header_offset); h = f.read(30); nl, el = struct.unpack('<HH', h[26:30]); f.seek(i.header_offset + 30 + nl + el)
             yield i.filename, i.compress_type, i.CRC, i.file_size, f.read(i.compress_size)
+def damage_attribs(roots, donor, exclude_dir=None):
+    """carattribs.xml for `donor` from an installed per-car override zip (Damage Plus 'DmgCars_pri_*.zip', entries '<MEDIA>/carattribs.xml'),
+    highest priority wins; None when no installed pack overrides it. A clone has a new media name, so such overrides never reach it by themselves."""
+    from . import fzip
+    best = None; want = (donor + '/carattribs.xml').lower()
+    for root in roots:
+        for z in glob.glob(os.path.join(root, '*', 'Media', 'DLCZips', 'Dmg*_pri_*.zip')):
+            if exclude_dir and os.path.normcase(os.path.abspath(z)).startswith(os.path.normcase(os.path.abspath(exclude_dir))): continue
+            try: names = [n for n in fzip.names(z) if n.lower() == want]
+            except Exception: continue
+            if not names: continue
+            pr = _prio(os.path.basename(z))
+            if best is None or pr > best[0]: best = (pr, z, names[0])
+    if not best: return None
+    return fzip.read_files(best[1], lambda n: n == best[2])[best[2]]
 def car_entries(donor_zip, new_media, tex):
     """donor zip raw-copied under media/cars/<new_media>/ ; texture files in tex replaced by stored copies.
     The game finds a car's model by its media name (<media>.carbin, <media>_lod0.carbin, <media>_cockpit.carbin, brake parts,
