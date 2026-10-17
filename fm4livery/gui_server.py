@@ -67,6 +67,17 @@ class Api:
         orig = packs.save_originals(car, zp, set(tex), bk)
         b = packs.build(os.path.join(self.exports, 'packs'), car, tex, pr, originals=orig)
         i = packs.install(pr, b, bk); return dict(car=car, folder=b['folder'], dest=i['dest'], parked=i['parked'], backups=bk, files=sorted(tex))
+    def stfs_export(self, d):
+        from . import stfs
+        c = self.need(); slot = int(d['slot']); g = app.load_garage(c); row = app.car_row(g, c, slot)
+        zp = app.car_zip_for(c, row, d.get('carzip') or None); car = os.path.splitext(os.path.basename(zp))[0]
+        tpl = d.get('template') or stfs.find_template([c['root'], os.path.dirname(c['media'] or ''), self.exports])
+        if not tpl or not stfs.is_template(tpl): raise app.AppError('no retail FM4 DLC package (STFS LIVE file) found to use as the template - type its full path in the template box')
+        r = app.bake_atlas(zp, base64.b64decode(d['overlay']), os.path.join(self.exports, 'textures'), False)
+        tex = {os.path.basename(f): open(f, 'rb').read() for f in r['files']}
+        orig = packs.save_originals(car, zp, set(tex), os.path.join(c['root'], 'fm4livery_backups'))
+        b = packs.build(os.path.join(self.exports, 'packs'), car, tex, None, originals=orig)
+        info = packs.export_stfs(b, tpl, os.path.join(self.exports, 'stfs'), car); info['template'] = tpl; return info
     def uninstall(self, d):
         c = self.need(); pr, bk = self._pk(c); return dict(moved=packs.uninstall(pr, d['folder'], bk), backups=bk)
     def packs_list(self, d=None):
@@ -149,7 +160,7 @@ class Api:
     def backups(self): c = self.need(); return dict(files=[os.path.relpath(p, c['profile']) for p in app.backups(c)])
     def restore(self, d): c = self.need(); return dict(restored=os.path.relpath(app.restore(c, os.path.join(c['profile'], d['file'])), c['profile']))
 ROUTES = {'setup': lambda a, d: a.setup(d.get('root') or '', d.get('profile'), pe=d.get('pe'), media=d.get('media')), 'state': lambda a, d: a.state(), 'garage': lambda a, d: a.garage(), 'preview': lambda a, d: a.preview(d), 'model': lambda a, d: a.model(d), 'slot': lambda a, d: a.slot(d), 'savelayers': lambda a, d: a.savelayers(d), 'vinylcat': lambda a, d: a.vinylcat(d), 'fitlayers': lambda a, d: a.fitlayers(d), 'vinylshapes': lambda a, d: a.vinylshapes(d),
-          'apply': lambda a, d: a.apply(d), 'bake': lambda a, d: a.bake(d), 'savefile': lambda a, d: a.savefile(d), 'install': lambda a, d: a.install(d), 'uninstall': lambda a, d: a.uninstall(d), 'packs': lambda a, d: a.packs_list(d), 'decalfit': lambda a, d: a.decalfit(d), 'export': lambda a, d: a.export(d), 'import': lambda a, d: a.import_(d), 'backups': lambda a, d: a.backups(), 'restore': lambda a, d: a.restore(d)}
+          'apply': lambda a, d: a.apply(d), 'bake': lambda a, d: a.bake(d), 'savefile': lambda a, d: a.savefile(d), 'install': lambda a, d: a.install(d), 'uninstall': lambda a, d: a.uninstall(d), 'stfs': lambda a, d: a.stfs_export(d), 'packs': lambda a, d: a.packs_list(d), 'decalfit': lambda a, d: a.decalfit(d), 'export': lambda a, d: a.export(d), 'import': lambda a, d: a.import_(d), 'backups': lambda a, d: a.backups(), 'restore': lambda a, d: a.restore(d)}
 def make_server(root=None, port=0):
     api = Api(root); token = secrets.token_urlsafe(16); page = PAGE.replace('__TOKEN__', token).encode('utf-8')
     class H(BaseHTTPRequestHandler):

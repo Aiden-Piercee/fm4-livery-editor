@@ -26,6 +26,8 @@ HTML = r'''
        <span class="sep"></span>
        <button id="shExport" title="Builds the edited .xds files and a copy of the car zip in the output folder. Nothing is installed.">Build texture files</button>
        <button id="shInstall" title="Builds a texture override pack and installs it into the game's package folder. The original car zip is never changed. Game must be closed.">Install to game</button>
+       <button class="sec" id="shStfs" title="Wraps the texture pack as an STFS package (Xenia Install Content / modded consoles). The signature is NOT re-created - hardware needs it re-signed. Needs a retail FM4 DLC package as a template.">Export STFS</button>
+       <input id="shTpl" placeholder="STFS template path (optional)" style="width:190px">
        <button class="sec" id="shRestore" title="Moves this car's texture pack out of the game (kept in the backups folder)">Restore original</button>
        <button class="sec" id="shTemplate">Save atlas + UV template</button>
        <span class="note" id="shStatus" style="margin-left:auto"></span>
@@ -237,6 +239,11 @@ $('#shInstall').onclick=async()=>{if(!sel)return log('pick a garage slot first',
  try{const c=compose(2048);const r=await api('install',{slot:sel,carzip:$('#zipSel').value,overlay:await b64(await blobOf(c.overlay)),confirm:true,gameClosed:true});
   log('installed texture pack for '+r.car+' -> '+r.dest,'ok');r.files.forEach(f=>log('  '+f));r.parked.forEach(f=>log('  previous copy kept at '+f));log('pristine originals + backups: '+r.backups+' . Start the game and look at the car. Untested in-game: use Restore original if anything looks wrong.');$('#shStatus').textContent='installed - '+r.car}
  catch(e){log('install: '+e.message,'bad')}finally{setBusy(false,btn)}};
+$('#shStfs').onclick=async()=>{if(!sel)return log('pick a garage slot first','warn');if(!A.hasAtlas)return log('this car has no baked-livery texture','warn');
+ if(!A.dec3.length&&!A.sheet.length)return log('nothing placed yet','warn');const btn=$('#shStfs');setBusy(true,btn,'Packaging…');
+ try{const c=compose(2048);const r=await api('stfs',{slot:sel,carzip:$('#zipSel').value,overlay:await b64(await blobOf(c.overlay)),template:$('#shTpl').value.trim()});
+  log('STFS package written: '+r.path+' ('+r.verified_files+' files read back OK, template '+r.template+')','ok');log('The signature is stale (cannot be re-created). Xenia/recomp do not check it; a retail console does - hardware users must re-sign it. Untested on hardware.','warn');$('#shStatus').textContent='STFS built'}
+ catch(e){log('STFS: '+e.message,'bad')}finally{setBusy(false,btn)}};
 $('#shRestore').onclick=async()=>{try{const l=await api('packs',{slot:sel,carzip:$('#zipSel').value});const car=l.car;const m=l.packs.filter(p=>p.car===car);
  if(!m.length)return log('no installed texture pack for '+car,'warn');if(!await askYes('Is the game closed? Move the texture pack for '+car+' out of the game?'))return;
  for(const p of m){const r=await api('uninstall',{folder:p.folder});log('moved out: '+r.moved.join(' , '),'ok')}$('#shStatus').textContent='restored '+car}

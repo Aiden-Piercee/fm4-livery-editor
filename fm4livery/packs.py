@@ -84,3 +84,9 @@ def save_originals(car, zip_path, names, backup_root):
         p = os.path.join(d, n + '.orig'); hashes[n] = _sha(b)
         if not os.path.exists(p): open(p, 'wb').write(b)
     return hashes
+def export_stfs(built, template, out_dir, car):
+    """Wrap a built pack as an STFS package (stale signature, see stfs.py). Verified by reading every file back."""
+    from . import stfs
+    os.makedirs(out_dir, exist_ok=True); out = os.path.join(out_dir, built['folder'])
+    info = stfs.build(template, built['dir'], out, name='FM4 Livery Texture - ' + car, desc='Baked livery texture override for ' + car)
+    n = stfs.verify(out, built['dir']); info.update(path=out, verified_files=n); return info
