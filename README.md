@@ -35,7 +35,7 @@ To undo an install, remove the package from the library and install again. The p
 - Windows glass can't be painted over.
 - Only base-game cars can be cloned for now. A clone also keeps the original car's Damage Plus damage settings if you have that installed.
 - Xenia works with texture edits once the tool has installed them, because the install step unpacks the zips Xenia needs. Clones in Xenia are untried.
-- Xenia only loads 37 content entries, and stray folders in its content folder use up slots.
+- If you have a lot of DLC installed, YMMV in terms of whether your changes appear. Test this first.
 
 ## Status
 Works in the recomp: liveries, texture edits, clones (body, cockpit, dials, audio, damage, dealership thumbnail). Works in Xenia: texture edits. Untested: a second profile, a clean Windows machine, and the console package export (`STFS`), which needs re-signing for a console and is only for modded consoles.
