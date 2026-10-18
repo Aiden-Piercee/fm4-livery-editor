@@ -17,8 +17,7 @@ A free tool for the Forza Motorsport 4 fans who don't have any talent (like me) 
 - **DLC Packager** This approach means your modifies files are completely modular, and do not affect the original games files. Delete the packed DLC - delete the changes. Nice.
 
 ## Get it
-Download `fm4livery-windoza.zip` from the Actions tab of this repo (latest run, "fm4livery-windows"). Unzip it and double-click **FM4 Livery Tool.exe**. Nothing else needs installing.
-
+Download `fm4livery-windoza.zip` over there ->>>
 Prefer Python? Install Python 3.11+, run `pip install -r requirements.txt`, then `python run_livery.py`.
 
 
